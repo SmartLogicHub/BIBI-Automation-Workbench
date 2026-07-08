@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bilibili_tool.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "bilibili_tool.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "bilibili_tool.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "bilibili_tool.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if or (eq .Values.volumes.log.enabled true) (eq .Values.volumes.login.enabled true) }}
+      volumes:
+      {{- if .Values.volumes.log.enabled }}
+      - name: {{ .Values.volumes.log.name }}
+        hostPath: 
+          path: {{ .Values.volumes.log.path }}
+      {{- end }}
+      {{- if .Values.volumes.login.enabled }}
+      - name: {{ .Values.volumes.login.name }}
+        configMap:
+          name: {{ .Values.configmap.name }}
+          items:
+          - key: "entry.sh"
+            path: "entry.sh"
+            mode: 0755
+          - key: "entry_before.sh"
+            path: "entry_before.sh"
+            mode: 0755
+          - key: "entry_after.sh"
+            path: "entry_after.sh"
+            mode: 0755
+      {{- end }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- toYaml .Values.env | nindent 12 }}
+          {{- if or (eq .Values.volumes.log.enabled true) (eq .Values.volumes.login.enabled true) }}
+          volumeMounts:
+          {{- if .Values.volumes.log.enabled }}
+          - mountPath: "/bilibili_tool/Logs"
+            name: {{ .Values.volumes.log.name }}
+          {{- end }}
+          {{- if .Values.volumes.login.enabled }}
+          - mountPath: "/app/scripts"
+            name: {{ .Values.volumes.login.name }}
+          {{- end }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

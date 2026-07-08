@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "csharpier": {
+      "version": "1.0.3",
+      "commands": [
+        "csharpier"
+      ]
+    },
+    "husky": {
+      "version": "0.7.2",
+      "commands": [
+        "husky"
+      ]
+    }
+  }
+}

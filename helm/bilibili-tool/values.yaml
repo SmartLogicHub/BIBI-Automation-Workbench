@@ -1,0 +1,68 @@
+# Default values for bilibili_tool.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+
+namespace: default
+replicaCount: 1
+
+configmap:
+  name: entry
+
+image:
+  repository: zai7lou/bilibili_tool_pro
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "1.0.1"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# For more envs pls take a view at https://github.com/RayWangQvQ/BiliBiliToolPro/blob/main/docs/configuration.md
+env:
+  # cookie - required
+  - name: Ray_BiliBiliCookies__1
+    # past your cookie value
+    value: ""
+  # DailyTrigger - required
+  - name: Ray_DailyTaskConfig__Cron
+    # This means BiliBili Toll triggers at every day's 08:10 AM 
+    value: "10 8 * * *"
+  
+  # Add your custom env vars like
+  # - name: Ray_Security__IntervalSecondsBetweenRequestApi
+  #   value: "20"
+  # - name: Ray_Security__RandomSleepMaxMin
+  #   value: "20"
+  # - name: Ray_LiveLotteryTaskConfig__Cron
+  #   value: ""
+
+volumes:
+  # if `enabled=true`, then path and name is required
+  log:
+    enabled: true
+    path: "/tmp/logs"
+    name: "bili-tool-vol"
+  login:
+    enabled: true
+    name: "entry"
+
+
+
+podAnnotations: {}
+
+resources:
+  # Recommended to set this resources field
+  limits:
+    cpu: 100m
+    memory: 120Mi
+  requests:
+    cpu: 100m
+    memory: 120Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
