@@ -32,7 +32,13 @@ try
     var isProjectRun = File.Exists(
         Path.Combine(builder.Environment.ContentRootPath, "Ray.BiliBiliTool.Web.csproj")
     );
-    var portableLaunch = PortableLaunchOptions.Create(isProjectRun, args);
+    var isContainer = string.Equals(
+        Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"),
+        "true",
+        StringComparison.OrdinalIgnoreCase
+    );
+    var portableLaunch = PortableLaunchOptions.Create(isProjectRun, args, isContainer);
+    builder.Services.AddSingleton(portableLaunch);
     if (portableLaunch.Url is not null)
         builder.WebHost.UseUrls(portableLaunch.Url);
     var applicationStorageRoot = isProjectRun

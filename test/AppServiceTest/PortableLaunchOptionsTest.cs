@@ -11,6 +11,7 @@ public sealed class PortableLaunchOptionsTest
 
         Assert.Equal("http://127.0.0.1:5091", options.Url);
         Assert.True(options.OpenBrowser);
+        Assert.True(options.ExitWhenBrowserCloses);
     }
 
     [Fact]
@@ -20,6 +21,7 @@ public sealed class PortableLaunchOptionsTest
 
         Assert.Null(options.Url);
         Assert.False(options.OpenBrowser);
+        Assert.False(options.ExitWhenBrowserCloses);
     }
 
     [Fact]
@@ -31,5 +33,33 @@ public sealed class PortableLaunchOptionsTest
         );
 
         Assert.False(options.OpenBrowser);
+        Assert.False(options.ExitWhenBrowserCloses);
+    }
+
+    [Fact]
+    public void Custom_urls_disable_browser_opening_and_automatic_exit()
+    {
+        var options = PortableLaunchOptions.Create(
+            isProjectRun: false,
+            arguments: ["--urls", "http://0.0.0.0:8080"]
+        );
+
+        Assert.Null(options.Url);
+        Assert.False(options.OpenBrowser);
+        Assert.False(options.ExitWhenBrowserCloses);
+    }
+
+    [Fact]
+    public void Container_launch_does_not_enable_portable_browser_lifecycle()
+    {
+        var options = PortableLaunchOptions.Create(
+            isProjectRun: false,
+            arguments: [],
+            isContainer: true
+        );
+
+        Assert.Null(options.Url);
+        Assert.False(options.OpenBrowser);
+        Assert.False(options.ExitWhenBrowserCloses);
     }
 }
