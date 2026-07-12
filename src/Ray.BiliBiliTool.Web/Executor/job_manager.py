@@ -119,6 +119,20 @@ class JobManager:
                 job.events.append({"event": "stopped", "data": self.serialize(job)})
             return job
 
+    def request_stop_all(self):
+        stopped_count = 0
+        with self.lock:
+            for job in self.jobs.values():
+                if job.status in FINAL_STATUSES or job.stop_requested:
+                    continue
+                job.stop_requested = True
+                job.status = "stopped"
+                job.message = "任务已停止"
+                job.updated_at = time.time()
+                job.events.append({"event": "stopped", "data": self.serialize(job)})
+                stopped_count += 1
+        return stopped_count
+
     def get(self, job_id):
         with self.lock:
             return self.jobs.get(job_id)

@@ -27,6 +27,7 @@ from bili_operator import (
     STATUS_VERIFY,
     VERIFY_KEYWORDS,
     BiliOperator,
+    _parse_proxy,
     launch_persistent_browser_context,
 )
 from config_loader import load_config
@@ -237,6 +238,199 @@ def reset_ui_sessions_for_tests():
     with UI_SESSION_LOCK:
         UI_SESSIONS.clear()
         _cancel_ui_shutdown_locked()
+
+
+def resolve_account_target(store, account_id="", account_uid=""):
+    normalized_id = str(account_id or "").strip()
+    normalized_uid = str(account_uid or "").strip()
+    by_id = None
+    by_uid = None
+
+    if normalized_id:
+        try:
+            by_id = store.get_account(int(normalized_id))
+        except (TypeError, ValueError):
+            by_id = None
+    if normalized_uid:
+        by_uid = next(
+            (
+                account
+                for account in store.list_accounts()
+                if str(account.get("uid") or "").strip() == normalized_uid
+            ),
+            None,
+        )
+
+    if normalized_id and normalized_uid:
+        if not by_id or not by_uid:
+            raise JobError("未找到对应账号", category="account_not_found", suggestion="请检查账号是否仍在账号中心")
+        if int(by_id["id"]) != int(by_uid["id"]):
+            raise JobError("账号 ID 和 UID 不属于同一个账号", category="account_mismatch", recoverable=False)
+        return by_id
+    resolved = by_id if normalized_id else by_uid
+    if not resolved:
+        raise JobError("未找到对应账号", category="account_not_found", suggestion="原执行账号可能已被删除")
+    return resolved
+
+
+def validate_bilibili_target_url(target_url):
+    normalized = str(target_url or "").strip()
+    parsed = urlparse(normalized)
+    host = str(parsed.hostname or "").lower()
+    allowed_host = host == "bilibili.com" or host.endswith(".bilibili.com") or host == "b23.tv"
+    if parsed.scheme.lower() != "https" or not allowed_host:
+        raise JobError(
+            "只能在账号浏览器中打开 B 站 HTTPS 地址",
+            category="invalid_target_url",
+            recoverable=False,
+        )
+    return normalized
+
+
+def locate_comment_target(page, target_id="", target_text=""):
+    return bool(
+        page.evaluate(
+            """({ targetId, targetText }) => {
+                const roots = [document];
+                const visited = new Set();
+                for (let index = 0; index < roots.length; index += 1) {
+                    const root = roots[index];
+                    if (!root || visited.has(root)) continue;
+                    visited.add(root);
+                    for (const element of root.querySelectorAll('*')) {
+                        if (element.shadowRoot) roots.push(element.shadowRoot);
+                    }
+                }
+
+                const escapedId = window.CSS && CSS.escape ? CSS.escape(targetId || '') : targetId || '';
+                let target = null;
+                if (escapedId) {
+                    const selectors = [
+                        `[data-id="${escapedId}"]`,
+                        `[data-rpid="${escapedId}"]`,
+                        `[data-reply-id="${escapedId}"]`,
+                        `a[href*="${escapedId}"]`
+                    ];
+                    for (const root of roots) {
+                        target = selectors.map(selector => root.querySelector(selector)).find(Boolean) || null;
+                        if (target) break;
+                    }
+                }
+                if (!target && targetText) {
+                    const normalizedText = String(targetText).trim();
+                    for (const root of roots) {
+                        target = Array.from(root.querySelectorAll('p,span,div'))
+                            .find(element => String(element.innerText || '').trim() === normalizedText) || null;
+                        if (target) break;
+                    }
+                }
+                if (!target) {
+                    for (const root of roots) {
+                        target = root.querySelector('#commentapp, bili-comments, .comment-container, .reply-warp') || null;
+                        if (target) break;
+                    }
+                }
+                if (!target) return false;
+                target.scrollIntoView({ block: 'center', behavior: 'instant' });
+                target.style.outline = '3px solid #fb7299';
+                target.style.outlineOffset = '4px';
+                return true;
+            }""",
+            {"targetId": str(target_id or ""), "targetText": str(target_text or "")},
+        )
+    )
+
+
+def open_account_target_browser(
+    job,
+    account,
+    target_url,
+    target_kind="workflow",
+    target_id="",
+    target_text="",
+    browser_config=None,
+    playwright_factory=None,
+    context_launcher=None,
+):
+    if playwright_factory is None:
+        from playwright.sync_api import sync_playwright
+
+        playwright_factory = sync_playwright
+    context_launcher = context_launcher or launch_persistent_browser_context
+    browser_config = browser_config or {}
+    proxy_config = _parse_proxy(str(account.get("proxy") or "")) if account.get("proxy") else None
+    context = None
+    located = False
+
+    with AccountDirectoryLock(account["user_data_dir"]):
+        with playwright_factory() as playwright:
+            try:
+                context = context_launcher(
+                    playwright,
+                    account["user_data_dir"],
+                    browser_config,
+                    headless=False,
+                    proxy=proxy_config,
+                )
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+                if str(target_kind or "").lower() == "comment":
+                    located = locate_comment_target(page, target_id=target_id, target_text=target_text)
+                if JOBS and JOBS.get(job.id):
+                    JOBS.update(
+                        job.id,
+                        progress=30,
+                        message=f"账号 {account['name']} 的浏览器已打开",
+                        event_type="progress",
+                    )
+                while not job.stop_requested:
+                    try:
+                        if not context.pages:
+                            break
+                        page.wait_for_timeout(500)
+                    except Exception:
+                        break
+                return {"opened": True, "located": located, "accountName": account["name"]}
+            finally:
+                close_browser_context(context)
+
+
+def action_open_account_target(job, payload):
+    account = resolve_account_target(
+        get_store(),
+        account_id=payload.get("accountId") or payload.get("account_id"),
+        account_uid=payload.get("accountUid") or payload.get("account_uid"),
+    )
+    target_url = validate_bilibili_target_url(payload.get("targetUrl") or payload.get("target_url"))
+    target_kind = str(payload.get("targetKind") or payload.get("target_kind") or "workflow").strip().lower()
+    if target_kind not in {"comment", "workflow"}:
+        target_kind = "workflow"
+    try:
+        return open_account_target_browser(
+            job,
+            account,
+            target_url,
+            target_kind=target_kind,
+            target_id=payload.get("targetId") or payload.get("target_id") or "",
+            target_text=payload.get("targetText") or payload.get("target_text") or "",
+            browser_config=load_app_config().get("browser", {}),
+        )
+    except RuntimeError as error:
+        if "user_data_dir" in str(error) or "正在被其他任务使用" in str(error):
+            raise JobError(
+                f"账号 {account['name']} 正在执行任务，请稍后再查看",
+                category="account_busy",
+                suggestion="等待当前账号任务或浏览器窗口结束后重试",
+            ) from error
+        raise
+    except JobError:
+        raise
+    except Exception as error:
+        raise JobError(
+            f"无法打开账号浏览器：{error}",
+            category="browser_error",
+            suggestion="请确认已安装 Chrome 或 Edge，并检查账号浏览器档案",
+        ) from error
 
 
 def load_app_config():
@@ -2862,12 +3056,22 @@ class Handler(SimpleHTTPRequestHandler):
             self.start_action("run_integrated_workflow", action_run_integrated_workflow)
             return
 
+        if parsed.path == "/api/actions/open-account-target":
+            self.start_action("open_account_target", action_open_account_target)
+            return
+
         if parsed.path == "/api/actions/login-account":
             self.start_action("login_account", action_login_account)
             return
 
         if parsed.path == "/api/actions/check-account-login":
             self.start_action("check_account_login", action_check_account_login)
+            return
+
+        if parsed.path == "/api/jobs/stop-all":
+            read_json_body(self)
+            stopped_count = get_jobs().request_stop_all()
+            self.send_json({"ok": True, "stoppedCount": stopped_count})
             return
 
         if parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/stop"):
