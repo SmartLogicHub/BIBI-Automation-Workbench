@@ -462,6 +462,63 @@ public class MaintenanceWorkflowServiceTest
     }
 
     [Fact]
+    public async Task StopAllRunsAsync_ShouldCancelEveryActiveRunAndBeIdempotent()
+    {
+        var service = new MaintenanceWorkflowService();
+        var first = await service.SaveWorkflowAsync(
+            new MaintenanceWorkflowDefinition
+            {
+                Name = "退出时停止流程一",
+                Steps =
+                [
+                    new MaintenanceWorkflowStep
+                    {
+                        NodeType = "control.wait",
+                        DisplayName = "等待间隔",
+                        IntervalSeconds = 10,
+                    },
+                ],
+            }
+        );
+        var second = await service.SaveWorkflowAsync(
+            new MaintenanceWorkflowDefinition
+            {
+                Name = "退出时停止流程二",
+                Steps =
+                [
+                    new MaintenanceWorkflowStep
+                    {
+                        NodeType = "control.wait",
+                        DisplayName = "等待间隔",
+                        IntervalSeconds = 10,
+                    },
+                ],
+            }
+        );
+        var firstTask = service.RunWorkflowAsync(first.Id, new MaintenanceWorkflowRunRequest());
+        var secondTask = service.RunWorkflowAsync(second.Id, new MaintenanceWorkflowRunRequest());
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            var activeCount = (await service.GetRunsAsync()).Count(run =>
+                run.Status == MaintenanceWorkflowRunStatus.Running
+            );
+            if (activeCount == 2)
+                break;
+            await Task.Delay(25);
+        }
+
+        Assert.Equal(2, await service.StopAllRunsAsync());
+        var completed = await Task.WhenAll(firstTask, secondTask)
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.All(
+            completed,
+            run => Assert.Equal(MaintenanceWorkflowRunStatus.Cancelled, run.Status)
+        );
+        Assert.Equal(0, await service.StopAllRunsAsync());
+    }
+
+    [Fact]
     public async Task StopRunAsync_ShouldNotRewriteATerminalRun()
     {
         var service = new MaintenanceWorkflowService();

@@ -3,6 +3,7 @@
 @using Ray.BiliBiliTool.Application.Contracts.ContentAutomation
 @using Ray.BiliBiliTool.Application.Contracts.MaintenanceWorkflows
 @using Ray.BiliBiliTool.Web.Components.Pages.MaintenanceWorkflow
+@using Ray.BiliBiliTool.Web.Services
 @inject IContentAutomationBridge AutomationBridge
 @inject IMaintenanceWorkflowService WorkflowService
 @inject IDialogService DialogService
@@ -160,7 +161,9 @@
                 {
                     <WorkflowRunLog CurrentRun="@SelectedRow.WorkflowRun"
                                     DeleteRun="DeleteWorkflowRunAsync"
-                                    ClearHistory="ClearWorkflowRunsAsync" />
+                                    ClearHistory="ClearWorkflowRunsAsync"
+                                    OpenWithAccount="OpenWorkflowTargetAsync"
+                                    OpeningTargetKeys="_openingTargetKeys" />
                 }
                 else if (SelectedRow.Comment is not null)
                 {
@@ -207,14 +210,23 @@
                         }
 
                         <div class="receipt-actions">
-                            @if (!string.IsNullOrWhiteSpace(CommentOpenUrl(comment)))
+                            @if (AccountTargetViewRules.CanOpenCommentWithAccount(comment))
                             {
                                 <MudButton Variant="Variant.Outlined"
                                            Color="Color.Primary"
+                                           StartIcon="@Icons.Material.Outlined.AccountCircle"
+                                           Disabled="@_openingTargetKeys.Contains(CommentTargetKey(comment))"
+                                           OnClick="@(() => OpenCommentTargetAsync(comment))">
+                                    用账号“@AccountName(comment)”查看评论
+                                </MudButton>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(CommentOpenUrl(comment)))
+                            {
+                                <MudButton Variant="Variant.Text"
                                            StartIcon="@Icons.Material.Outlined.OpenInNew"
                                            Href="@CommentOpenUrl(comment)"
                                            Target="_blank">
-                                    打开评论区
+                                    普通浏览器打开
                                 </MudButton>
                             }
                             <MudButton Variant="Variant.Text"
@@ -241,6 +253,7 @@
     private string _search = "";
     private string _selectedKey = "";
     private List<ContentAutomationLedgerRecord> _ledger = [];
+    private readonly HashSet<string> _openingTargetKeys = new(StringComparer.Ordinal);
     private List<MaintenanceWorkflowRunRecord> _workflowRuns = [];
     private List<UnifiedRecord> _rows = [];
 
@@ -381,6 +394,92 @@
         finally
         {
             _isBusy = false;
+        }
+    }
+
+    private Task OpenCommentTargetAsync(ContentAutomationLedgerRecord comment) =>
+        OpenAccountTargetAsync(
+            CommentTargetKey(comment),
+            new ContentAutomationOpenTargetRequest
+            {
+                AccountId = comment.AccountId,
+                TargetUrl = AccountTargetViewRules.CommentTargetUrl(comment),
+                TargetId = comment.PlatformCommentId,
+                TargetText = comment.CommentText,
+                TargetKind = "comment",
+            }
+        );
+
+    private Task OpenWorkflowTargetAsync(MaintenanceWorkflowActionEvidence evidence) =>
+        OpenAccountTargetAsync(
+            WorkflowTargetKey(evidence),
+            new ContentAutomationOpenTargetRequest
+            {
+                AccountUid = evidence.AccountUid,
+                TargetUrl = AccountTargetViewRules.WorkflowTargetUrl(evidence),
+                TargetId = evidence.TargetId,
+                TargetText = evidence.TargetTitle,
+                TargetKind = "workflow",
+            }
+        );
+
+    private async Task OpenAccountTargetAsync(
+        string targetKey,
+        ContentAutomationOpenTargetRequest request
+    )
+    {
+        if (!_openingTargetKeys.Add(targetKey))
+            return;
+        try
+        {
+            var result = await AutomationBridge.OpenAccountTargetAsync(request);
+            if (!result.Success || string.IsNullOrWhiteSpace(result.JobId))
+            {
+                Snackbar.Add(
+                    string.IsNullOrWhiteSpace(result.Message) ? "无法启动账号浏览器。" : result.Message,
+                    Severity.Warning
+                );
+                return;
+            }
+
+            for (var attempt = 0; attempt < 20; attempt++)
+            {
+                await Task.Delay(500);
+                var status = await AutomationBridge.GetJobAsync(result.JobId);
+                if (status.Progress >= 30 && status.Status.Equals("running", StringComparison.OrdinalIgnoreCase))
+                {
+                    Snackbar.Add(
+                        string.IsNullOrWhiteSpace(status.Message) ? "账号浏览器已打开。" : status.Message,
+                        Severity.Success
+                    );
+                    return;
+                }
+                if (status.Status.Equals("done", StringComparison.OrdinalIgnoreCase))
+                {
+                    Snackbar.Add("账号浏览器已打开并由用户关闭。", Severity.Success);
+                    return;
+                }
+                if (IsFailedViewerStatus(status.Status))
+                {
+                    var message = !string.IsNullOrWhiteSpace(status.Error)
+                        ? status.Error
+                        : !string.IsNullOrWhiteSpace(status.Message)
+                            ? status.Message
+                            : "无法打开账号浏览器。";
+                    Snackbar.Add(message, Severity.Warning);
+                    return;
+                }
+            }
+
+            Snackbar.Add("账号浏览器正在启动，请查看桌面窗口。", Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"无法打开账号浏览器：{ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _openingTargetKeys.Remove(targetKey);
         }
     }
 
@@ -580,11 +679,21 @@
             : !string.IsNullOrWhiteSpace(comment.Bvid) ? comment.Bvid : "未记录目标视频";
 
     private static string CommentOpenUrl(ContentAutomationLedgerRecord comment) =>
-        !string.IsNullOrWhiteSpace(comment.CommentUrl)
-            ? comment.CommentUrl
-            : !string.IsNullOrWhiteSpace(comment.VideoUrl)
-                ? comment.VideoUrl
-                : string.IsNullOrWhiteSpace(comment.Bvid) ? "" : $"https://www.bilibili.com/video/{comment.Bvid}";
+        AccountTargetViewRules.CommentTargetUrl(comment);
+
+    private static string CommentTargetKey(ContentAutomationLedgerRecord comment) =>
+        $"comment:{comment.Id}";
+
+    private static string WorkflowTargetKey(MaintenanceWorkflowActionEvidence evidence) =>
+        !string.IsNullOrWhiteSpace(evidence.EvidenceId)
+            ? $"workflow:{evidence.EvidenceId}"
+            : $"workflow:{evidence.AccountUid}:{AccountTargetViewRules.WorkflowTargetUrl(evidence)}";
+
+    private static bool IsFailedViewerStatus(string status) =>
+        status.Equals("error", StringComparison.OrdinalIgnoreCase)
+        || status.Equals("stopped", StringComparison.OrdinalIgnoreCase)
+        || status.Equals("timeout", StringComparison.OrdinalIgnoreCase)
+        || status.Equals("manual_required", StringComparison.OrdinalIgnoreCase);
 
     private static string CommentTime(ContentAutomationLedgerRecord comment)
     {

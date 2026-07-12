@@ -49,6 +49,8 @@ public interface IMaintenanceWorkflowService
 
     Task<bool> StopRunAsync(string runId, CancellationToken cancellationToken = default);
 
+    Task<int> StopAllRunsAsync(CancellationToken cancellationToken = default);
+
     Task<bool> DeleteRunAsync(string runId, CancellationToken cancellationToken = default);
 
     Task<int> ClearRunsAsync(string workflowId, CancellationToken cancellationToken = default);

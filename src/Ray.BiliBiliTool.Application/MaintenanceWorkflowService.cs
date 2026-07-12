@@ -523,6 +523,38 @@ public class MaintenanceWorkflowService : IMaintenanceWorkflowService
         return Task.FromResult(true);
     }
 
+    public Task<int> StopAllRunsAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureLoaded();
+        var stopSources = new List<CancellationTokenSource>();
+        var stoppedCount = 0;
+        lock (_lock)
+        {
+            foreach (
+                var run in _runs.Where(run =>
+                    run.Status
+                        is MaintenanceWorkflowRunStatus.Running
+                            or MaintenanceWorkflowRunStatus.WaitingManualConfirm
+                )
+            )
+            {
+                run.Status = MaintenanceWorkflowRunStatus.Cancelled;
+                run.EndedAt = DateTimeOffset.Now;
+                run.FailureReason = "程序退出，流程已停止。";
+                if (_activeRunStops.TryGetValue(run.Id, out var stopCts))
+                    stopSources.Add(stopCts);
+                stoppedCount++;
+            }
+            if (stoppedCount > 0)
+                SaveState();
+        }
+
+        foreach (var stopSource in stopSources)
+            stopSource.Cancel();
+        return Task.FromResult(stoppedCount);
+    }
+
     public Task<bool> DeleteRunAsync(string runId, CancellationToken cancellationToken = default)
     {
         EnsureLoaded();

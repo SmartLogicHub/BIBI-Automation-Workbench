@@ -660,6 +660,61 @@ public class ContentAutomationBridgeTest
     }
 
     [Fact]
+    public async Task OpenAccountTargetAsync_ShouldPostAccountAndEvidenceFields()
+    {
+        var handler = new RecordingHandler(request =>
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("/api/actions/open-account-target", request.RequestUri?.AbsolutePath);
+            using var document = JsonDocument.Parse(request.Body);
+            var root = document.RootElement;
+            Assert.Equal("7", root.GetProperty("accountId").GetString());
+            Assert.Equal("", root.GetProperty("accountUid").GetString());
+            Assert.Equal(
+                "https://www.bilibili.com/video/BV1xx411c7mD",
+                root.GetProperty("targetUrl").GetString()
+            );
+            Assert.Equal("98765", root.GetProperty("targetId").GetString());
+            Assert.Equal("测试评论", root.GetProperty("targetText").GetString());
+            Assert.Equal("comment", root.GetProperty("targetKind").GetString());
+            return JsonResponse(
+                """{"jobId":"job-viewer","status":"started","message":"任务已启动"}"""
+            );
+        });
+        var bridge = CreateBridge(handler);
+
+        var result = await bridge.OpenAccountTargetAsync(
+            new ContentAutomationOpenTargetRequest
+            {
+                AccountId = "7",
+                TargetUrl = "https://www.bilibili.com/video/BV1xx411c7mD",
+                TargetId = "98765",
+                TargetText = "测试评论",
+                TargetKind = "comment",
+            }
+        );
+
+        Assert.True(result.Success);
+        Assert.Equal("job-viewer", result.JobId);
+    }
+
+    [Fact]
+    public async Task StopAllJobsAsync_ShouldReturnStoppedCount()
+    {
+        var handler = new RecordingHandler(request =>
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("/api/jobs/stop-all", request.RequestUri?.AbsolutePath);
+            return JsonResponse("""{"ok":true,"stoppedCount":3}""");
+        });
+        var bridge = CreateBridge(handler);
+
+        var stoppedCount = await bridge.StopAllJobsAsync();
+
+        Assert.Equal(3, stoppedCount);
+    }
+
+    [Fact]
     public async Task GetJobEventsAsync_ShouldParseServerSentEventsPayload()
     {
         var handler = new RecordingHandler(request =>

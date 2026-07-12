@@ -1,4 +1,5 @@
 @using Ray.BiliBiliTool.Application.Contracts.MaintenanceWorkflows
+@using Ray.BiliBiliTool.Web.Services
 
 <section class="workflow-run-log">
     @if (CurrentRun is null)
@@ -102,18 +103,33 @@
                                             <span class="workflow-evidence-state">@EvidenceState(evidence)</span>
                                         </div>
                                         <span>账号 UID @evidence.AccountUid · @FormatTime(evidence.OccurredAt)</span>
-                                        @if (!string.IsNullOrWhiteSpace(evidence.TargetTitle))
+                                        @if (!string.IsNullOrWhiteSpace(evidence.TargetTitle)
+                                            || !string.IsNullOrWhiteSpace(AccountTargetViewRules.WorkflowTargetUrl(evidence)))
                                         {
-                                            @if (!string.IsNullOrWhiteSpace(evidence.TargetUrl))
+                                            <span>@(string.IsNullOrWhiteSpace(evidence.TargetTitle) ? evidence.TargetId : evidence.TargetTitle)</span>
+                                            @if (!string.IsNullOrWhiteSpace(AccountTargetViewRules.WorkflowTargetUrl(evidence)))
                                             {
-                                                <a href="@evidence.TargetUrl" target="_blank" rel="noopener noreferrer">
-                                                    @evidence.TargetTitle
-                                                    <MudIcon Icon="@Icons.Material.Outlined.OpenInNew" Size="Size.Small" />
-                                                </a>
-                                            }
-                                            else
-                                            {
-                                                <span>@evidence.TargetTitle</span>
+                                                <div class="workflow-evidence-actions">
+                                                    @if (OpenWithAccount.HasDelegate
+                                                        && AccountTargetViewRules.CanOpenWorkflowWithAccount(evidence))
+                                                    {
+                                                        <MudButton Variant="Variant.Outlined"
+                                                                   Color="Color.Primary"
+                                                                   Size="Size.Small"
+                                                                   StartIcon="@Icons.Material.Outlined.AccountCircle"
+                                                                   Disabled="@OpeningTargetKeys.Contains(TargetKey(evidence))"
+                                                                   OnClick="@(() => OpenWithAccount.InvokeAsync(evidence))">
+                                                            用执行账号查看
+                                                        </MudButton>
+                                                    }
+                                                    <MudButton Variant="Variant.Text"
+                                                               Size="Size.Small"
+                                                               StartIcon="@Icons.Material.Outlined.OpenInNew"
+                                                               Href="@AccountTargetViewRules.WorkflowTargetUrl(evidence)"
+                                                               Target="_blank">
+                                                        普通浏览器打开
+                                                    </MudButton>
+                                                </div>
                                             }
                                         }
                                         @if (!string.IsNullOrWhiteSpace(EvidenceQuantity(evidence)))
@@ -175,6 +191,17 @@
 
     [Parameter]
     public EventCallback<string> ClearHistory { get; set; }
+
+    [Parameter]
+    public EventCallback<MaintenanceWorkflowActionEvidence> OpenWithAccount { get; set; }
+
+    [Parameter]
+    public IReadOnlySet<string> OpeningTargetKeys { get; set; } = new HashSet<string>();
+
+    private static string TargetKey(MaintenanceWorkflowActionEvidence evidence) =>
+        !string.IsNullOrWhiteSpace(evidence.EvidenceId)
+            ? $"workflow:{evidence.EvidenceId}"
+            : $"workflow:{evidence.AccountUid}:{AccountTargetViewRules.WorkflowTargetUrl(evidence)}";
 
     private static bool IsActive(MaintenanceWorkflowRunStatus status) =>
         status is MaintenanceWorkflowRunStatus.Running or MaintenanceWorkflowRunStatus.WaitingManualConfirm;

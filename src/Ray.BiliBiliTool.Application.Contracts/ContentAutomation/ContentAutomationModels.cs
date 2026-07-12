@@ -89,6 +89,21 @@ public class ContentAutomationAccountUpdateResult
     public ContentAutomationAccount Account { get; set; } = new();
 }
 
+public class ContentAutomationOpenTargetRequest
+{
+    public string AccountId { get; set; } = "";
+
+    public string AccountUid { get; set; } = "";
+
+    public string TargetUrl { get; set; } = "";
+
+    public string TargetId { get; set; } = "";
+
+    public string TargetText { get; set; } = "";
+
+    public string TargetKind { get; set; } = "workflow";
+}
+
 public class ContentAutomationVideo
 {
     public string Id { get; set; } = "";

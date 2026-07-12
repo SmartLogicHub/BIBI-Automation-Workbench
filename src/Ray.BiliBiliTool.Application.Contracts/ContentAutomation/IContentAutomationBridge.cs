@@ -32,6 +32,11 @@ public interface IContentAutomationBridge
         CancellationToken cancellationToken = default
     );
 
+    Task<ContentAutomationJobResult> OpenAccountTargetAsync(
+        ContentAutomationOpenTargetRequest request,
+        CancellationToken cancellationToken = default
+    );
+
     Task<string> GetAccountCookieAsync(
         string accountId,
         CancellationToken cancellationToken = default
@@ -127,6 +132,8 @@ public interface IContentAutomationBridge
         string jobId,
         CancellationToken cancellationToken = default
     );
+
+    Task<int> StopAllJobsAsync(CancellationToken cancellationToken = default);
 
     Task<ContentAutomationAiSettings> GetAiSettingsAsync(
         CancellationToken cancellationToken = default

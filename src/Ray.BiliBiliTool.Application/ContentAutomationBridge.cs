@@ -234,6 +234,31 @@ public class ContentAutomationBridge : IContentAutomationBridge
         return StartActionAsync("/api/actions/login-account", payload, cancellationToken);
     }
 
+    public Task<ContentAutomationJobResult> OpenAccountTargetAsync(
+        ContentAutomationOpenTargetRequest request,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (
+            string.IsNullOrWhiteSpace(request.AccountId)
+            && string.IsNullOrWhiteSpace(request.AccountUid)
+        )
+            return Task.FromResult(FailedJob("Account id or uid is required."));
+        if (string.IsNullOrWhiteSpace(request.TargetUrl))
+            return Task.FromResult(FailedJob("Target URL is required."));
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["accountId"] = request.AccountId?.Trim() ?? "",
+            ["accountUid"] = request.AccountUid?.Trim() ?? "",
+            ["targetUrl"] = request.TargetUrl.Trim(),
+            ["targetId"] = request.TargetId?.Trim() ?? "",
+            ["targetText"] = request.TargetText?.Trim() ?? "",
+            ["targetKind"] = request.TargetKind?.Trim() ?? "workflow",
+        };
+        return StartActionAsync("/api/actions/open-account-target", payload, cancellationToken);
+    }
+
     public async Task<string> GetAccountCookieAsync(
         string accountId,
         CancellationToken cancellationToken = default
@@ -1170,6 +1195,27 @@ public class ContentAutomationBridge : IContentAutomationBridge
         catch (Exception ex)
         {
             return new ContentAutomationJobStatus { JobId = jobId.Trim(), Message = ex.Message };
+        }
+    }
+
+    public async Task<int> StopAllJobsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var response = await _httpClient.PostAsJsonAsync(
+                BuildUri("/api/jobs/stop-all"),
+                new { },
+                JsonOptions,
+                cancellationToken
+            );
+            var document = await ReadJsonAsync(response, cancellationToken);
+            return response.IsSuccessStatusCode
+                ? GetInt(document.RootElement, "stoppedCount", "stopped_count")
+                : 0;
+        }
+        catch
+        {
+            return 0;
         }
     }
 

@@ -264,6 +264,14 @@
     text-decoration: underline;
 }
 
+.workflow-evidence-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+
 .workflow-run-actions {
     display: flex;
     justify-content: flex-end;
