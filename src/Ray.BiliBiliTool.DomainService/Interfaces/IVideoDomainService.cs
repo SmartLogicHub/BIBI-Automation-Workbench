@@ -46,10 +46,21 @@ public interface IVideoDomainService : IDomainService
     /// <param name="dailyTaskStatus"></param>
     Task WatchVideo(VideoInfoDto videoInfo, BiliCookie ck);
 
+    Task<VideoActionReceipt> WatchVideoWithReceipt(VideoInfoDto videoInfo, BiliCookie ck);
+
+    /// <summary>
+    /// 点赞
+    /// </summary>
+    Task LikeVideo(VideoInfoDto videoInfo, BiliCookie ck);
+
+    Task<VideoActionReceipt> LikeVideoWithReceipt(VideoInfoDto videoInfo, BiliCookie ck);
+
     /// <summary>
     /// 分享
     /// </summary>
     /// <param name="aid"></param>
     /// <param name="dailyTaskStatus"></param>
     Task ShareVideo(VideoInfoDto videoInfo, BiliCookie ck);
+
+    Task<VideoActionReceipt> ShareVideoWithReceipt(VideoInfoDto videoInfo, BiliCookie ck);
 }

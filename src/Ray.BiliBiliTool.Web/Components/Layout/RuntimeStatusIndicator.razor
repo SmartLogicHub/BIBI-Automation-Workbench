@@ -1,0 +1,53 @@
+@rendermode InteractiveServer
+@implements IDisposable
+@using Ray.BiliBiliTool.Application.Contracts.Runtime
+@inject ISystemRuntimeStateStore RuntimeStateStore
+
+<div class="runtime-state" role="status" aria-live="polite">
+    <MudIcon Icon="@StatusIcon" Size="Size.Small" Class="@($"runtime-state__icon {StatusClass}")" />
+    <span class="runtime-state__label">@_state.Message</span>
+    @if (_state.IsReady && _state.TotalAccounts > 0)
+    {
+        <span class="runtime-state__detail">@_state.AvailableAccounts / @_state.TotalAccounts 个账号可用</span>
+    }
+</div>
+
+@code {
+    private SystemRuntimeState _state = new();
+
+    private string StatusIcon => _state.Status switch
+    {
+        SystemRuntimeStatus.Ready => Icons.Material.Filled.CheckCircle,
+        SystemRuntimeStatus.Starting => Icons.Material.Filled.Schedule,
+        SystemRuntimeStatus.NeedsAttention => Icons.Material.Filled.ErrorOutline,
+        _ => Icons.Material.Filled.StopCircle
+    };
+
+    private string StatusClass => _state.Status switch
+    {
+        SystemRuntimeStatus.Ready => "runtime-state__icon--ready",
+        SystemRuntimeStatus.Starting => "runtime-state__icon--starting",
+        SystemRuntimeStatus.NeedsAttention => "runtime-state__icon--warning",
+        _ => "runtime-state__icon--stopped"
+    };
+
+    protected override void OnInitialized()
+    {
+        _state = RuntimeStateStore.Current;
+        RuntimeStateStore.Changed += OnStateChanged;
+    }
+
+    private void OnStateChanged(SystemRuntimeState state)
+    {
+        _ = InvokeAsync(() =>
+        {
+            _state = state;
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        RuntimeStateStore.Changed -= OnStateChanged;
+    }
+}

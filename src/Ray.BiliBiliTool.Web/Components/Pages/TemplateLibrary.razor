@@ -1,0 +1,309 @@
+@rendermode InteractiveServer
+@using Ray.BiliBiliTool.Application.Contracts.ContentAutomation
+@inject IContentAutomationBridge AutomationBridge
+@inject ISnackbar Snackbar
+
+<PageTitle>模板库</PageTitle>
+
+<section class="bibi-page">
+    <header class="bibi-page-header">
+        <div>
+            <p class="bibi-eyebrow">模板库</p>
+            <h1 class="bibi-title">评论模板和批量导入</h1>
+            <p class="bibi-subtitle">模板库继续以旧 Python 执行器为唯一数据源。支持从评论词文件夹批量导入 txt 文件，每个文件生成一个评论库。</p>
+        </div>
+        <div class="bibi-actions">
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@_isBusy" OnClick="LoadAsync">
+                刷新
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" Disabled="@_isBusy" OnClick="SaveLibraryAsync">
+                保存模板
+            </MudButton>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <MudAlert Severity="@_messageSeverity" Variant="Variant.Outlined">@_message</MudAlert>
+    }
+
+    <MudGrid Spacing="2">
+        <MudItem xs="12" lg="4">
+            <section class="bibi-panel">
+                <div class="bibi-panel__header">
+                    <h2 class="bibi-panel__title">模板库列表</h2>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NewLibrary">
+                        新建
+                    </MudButton>
+                </div>
+                <div class="bibi-panel__body">
+                    <MudTextField T="string" @bind-Value="_search" Label="搜索模板库" Immediate="true" />
+                    <MudTable Items="@FilteredLibraries" Dense="true" Hover="true" Class="mt-3">
+                        <HeaderContent>
+                            <MudTh>名称</MudTh>
+                            <MudTh>模板</MudTh>
+                            <MudTh>状态</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="名称">
+                                <MudLink OnClick="@(() => SelectLibrary(context))">@context.Name</MudLink>
+                            </MudTd>
+                            <MudTd DataLabel="模板">@context.TemplateCount</MudTd>
+                            <MudTd DataLabel="状态">@(context.Enabled ? "启用" : "禁用")</MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent>
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">暂无模板库。可以新建或从目录批量导入。</MudAlert>
+                        </NoRecordsContent>
+                    </MudTable>
+                </div>
+            </section>
+
+            <section class="bibi-panel">
+                <div class="bibi-panel__header">
+                    <h2 class="bibi-panel__title">批量导入</h2>
+                    <span class="bibi-status-chip bibi-status-chip--info">旧执行器能力</span>
+                </div>
+                <div class="bibi-panel__body">
+                    <MudTextField T="string" @bind-Value="_importDirectory" Label="评论词文件夹路径" Placeholder="例如：G:\桌面\评论词" />
+                    <MudButton Class="mt-3" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.UploadFile" Disabled="@_isBusy" OnClick="ImportDirectoryAsync">
+                        批量导入 txt
+                    </MudButton>
+                </div>
+            </section>
+        </MudItem>
+
+        <MudItem xs="12" lg="5">
+            <section class="bibi-panel">
+                <div class="bibi-panel__header">
+                    <h2 class="bibi-panel__title">编辑模板</h2>
+                    <span class="bibi-status-chip">@(_editing.Enabled ? "启用" : "禁用")</span>
+                </div>
+                <div class="bibi-panel__body">
+                    <MudTextField T="string" @bind-Value="_editing.Name" Label="模板名称" />
+                    <MudSwitch T="bool" @bind-Value="_editing.Enabled" Color="Color.Primary" Label="启用模板库" />
+                    <MudTextField T="string" @bind-Value="_templatesText" Label="模板内容" Lines="14" Placeholder="每行一条评论模板。支持 {title}、{bvid}、{keyword} 等变量。" />
+                    <MudStack Row="true" Class="mt-3" Spacing="1">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" Disabled="@_isBusy" OnClick="SaveLibraryAsync">
+                            保存
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.ToggleOn" Disabled="@(_isBusy || string.IsNullOrWhiteSpace(_editing.Id))" OnClick="@(() => SetEnabledAsync(!_editing.Enabled))">
+                            @(_editing.Enabled ? "禁用" : "启用")
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.Delete" Disabled="@(_isBusy || string.IsNullOrWhiteSpace(_editing.Id))" OnClick="DeleteLibraryAsync">
+                            删除
+                        </MudButton>
+                    </MudStack>
+                </div>
+            </section>
+        </MudItem>
+
+        <MudItem xs="12" lg="3">
+            <section class="bibi-panel">
+                <div class="bibi-panel__header">
+                    <h2 class="bibi-panel__title">变量和预览</h2>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="GenerateExportText">
+                        导出文本
+                    </MudButton>
+                </div>
+                <div class="bibi-panel__body">
+                    <MudText Typo="Typo.subtitle2">可用变量</MudText>
+                    <MudList T="string" Dense="true">
+                        <MudListItem Text="{title} 视频标题" />
+                        <MudListItem Text="{bvid} BV 号" />
+                        <MudListItem Text="{keyword} 搜索关键词" />
+                    </MudList>
+
+                    <MudDivider Class="my-3" />
+                    <MudText Typo="Typo.subtitle2">模板预览</MudText>
+                    <div class="bibi-log-panel">
+                        @foreach (var line in PreviewLines)
+                        {
+                            <div class="bibi-log-line">@line</div>
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_exportText))
+                    {
+                        <MudTextField T="string" @bind-Value="_exportText" Label="导出内容" Lines="8" ReadOnly="true" Class="mt-3" />
+                    }
+                </div>
+            </section>
+        </MudItem>
+    </MudGrid>
+</section>
+
+@code {
+    private bool _isBusy;
+    private string _message = "";
+    private Severity _messageSeverity = Severity.Info;
+    private string _search = "";
+    private string _importDirectory = "";
+    private string _templatesText = "";
+    private string _exportText = "";
+    private List<ContentAutomationLibrary> _libraries = [];
+    private ContentAutomationLibrary _editing = new() { Enabled = true };
+
+    private IEnumerable<ContentAutomationLibrary> FilteredLibraries =>
+        string.IsNullOrWhiteSpace(_search)
+            ? _libraries
+            : _libraries.Where(x => x.Name.Contains(_search, StringComparison.OrdinalIgnoreCase));
+
+    private IEnumerable<string> PreviewLines =>
+        Lines(_templatesText)
+            .Take(8)
+            .Select(x => x.Replace("{title}", "示例视频标题", StringComparison.OrdinalIgnoreCase)
+                .Replace("{bvid}", "BV1xx411c7mD", StringComparison.OrdinalIgnoreCase)
+                .Replace("{keyword}", "示例关键词", StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _isBusy = true;
+        try
+        {
+            _libraries = (await AutomationBridge.GetLibrariesAsync()).ToList();
+            if (string.IsNullOrWhiteSpace(_editing.Id) && _libraries.Count > 0)
+                SelectLibrary(_libraries[0]);
+        }
+        catch (Exception ex)
+        {
+            SetMessage($"模板库加载失败：{ex.Message}", Severity.Warning);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void NewLibrary()
+    {
+        _editing = new ContentAutomationLibrary { Enabled = true };
+        _templatesText = "";
+        _exportText = "";
+    }
+
+    private void SelectLibrary(ContentAutomationLibrary library)
+    {
+        _editing = library;
+        _templatesText = library.Templates.Count > 0
+            ? string.Join(Environment.NewLine, library.Templates.Select(x => x.Text))
+            : "";
+        _exportText = "";
+    }
+
+    private async Task SaveLibraryAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_editing.Name))
+        {
+            SetMessage("请填写模板名称。", Severity.Warning);
+            return;
+        }
+        var templates = Lines(_templatesText);
+        if (templates.Count == 0)
+        {
+            SetMessage("请至少填写一条模板内容。", Severity.Warning);
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            var result = await AutomationBridge.SaveLibraryAsync(new ContentAutomationLibrarySaveRequest
+            {
+                Name = _editing.Name,
+                Enabled = _editing.Enabled,
+                Templates = templates
+            });
+            if (!result.Success)
+            {
+                SetMessage(result.Message, Severity.Warning);
+                return;
+            }
+
+            _libraries = result.Libraries.ToList();
+            SelectLibrary(result.Library);
+            SetMessage($"已保存模板库：{result.Library.Name}", Severity.Success);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task SetEnabledAsync(bool enabled)
+    {
+        _editing.Enabled = enabled;
+        await SaveLibraryAsync();
+    }
+
+    private async Task DeleteLibraryAsync()
+    {
+        var result = await AutomationBridge.DeleteLibraryAsync(_editing.Id);
+        if (result.Success)
+        {
+            _libraries = result.Libraries.ToList();
+            NewLibrary();
+            SetMessage($"已删除 {result.Deleted} 个模板库。", Severity.Warning);
+        }
+        else
+        {
+            SetMessage(result.Message, Severity.Warning);
+        }
+    }
+
+    private async Task ImportDirectoryAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_importDirectory))
+        {
+            SetMessage("请填写评论词文件夹路径。", Severity.Warning);
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            var result = await AutomationBridge.ImportLibrariesFromDirectoryAsync(_importDirectory);
+            if (result.Success)
+            {
+                _libraries = result.Libraries.ToList();
+                if (_libraries.Count > 0)
+                    SelectLibrary(_libraries[0]);
+                SetMessage($"已导入 {result.Imported} 个产品评论库。", Severity.Success);
+            }
+            else
+            {
+                SetMessage(result.Message, Severity.Warning);
+            }
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void GenerateExportText()
+    {
+        _exportText = string.Join(Environment.NewLine, Lines(_templatesText));
+        SetMessage("已生成可复制的模板导出文本。", Severity.Info);
+    }
+
+    private void SetMessage(string message, Severity severity)
+    {
+        _message = message;
+        _messageSeverity = severity;
+        Snackbar.Add(message, severity);
+    }
+
+    private static IReadOnlyList<string> Lines(string value)
+    {
+        return (value ?? "")
+            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+}

@@ -1,0 +1,27 @@
+@rendermode InteractiveServer
+@inject NavigationManager Navigation
+
+<PageTitle>内容自动化</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="my-6">
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        旧评论页面已并入“内容自动化”中心，正在跳转。
+    </MudAlert>
+    <MudButton Href="/ContentAutomation"
+               Variant="Variant.Filled"
+               Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.AutoAwesome"
+               Class="mt-3">
+        前往内容自动化
+    </MudButton>
+</MudContainer>
+
+@code {
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Navigation.NavigateTo("/ContentAutomation", replace: true);
+        }
+    }
+}

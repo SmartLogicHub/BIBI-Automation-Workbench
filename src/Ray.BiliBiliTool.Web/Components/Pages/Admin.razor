@@ -1,39 +1,27 @@
-@page "/Admin"
-@using Microsoft.AspNetCore.Authorization
 @rendermode InteractiveServer
-@attribute [Authorize]
+@inject NavigationManager Navigation
 
-<PageTitle>Change Password</PageTitle>
+<PageTitle>本地访问设置</PageTitle>
 
-<MudText Typo="Typo.h5">Change Password</MudText>
+<MudContainer MaxWidth="MaxWidth.Small" Class="my-6">
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        系统账号密码入口已关闭。请在“配置与审计”中查看本地模式、执行器配置和审计记录。
+    </MudAlert>
+    <MudButton Href="/AutomationConfigAudit"
+               Variant="Variant.Filled"
+               Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Settings"
+               Class="mt-3">
+        前往配置与审计
+    </MudButton>
+</MudContainer>
 
-<MudCard Class="mx-auto my-4" Style="max-width: 500px;">
-    <MudCardContent>
-        @if (!string.IsNullOrEmpty(_errorMessage))
+@code {
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
         {
-            <MudAlert Severity="Severity.Error" Class="mb-3">@_errorMessage</MudAlert>
+            Navigation.NavigateTo("/AutomationConfigAudit", replace: true);
         }
-        @if (!string.IsNullOrEmpty(_successMessage))
-        {
-            <MudAlert Severity="Severity.Success" Class="mb-3">@_successMessage</MudAlert>
-        }
-        <MudTextField @bind-Value="_username" Label="New User Name" Required="true" RequiredError="Username cannot be empty" />
-        <MudTextField @bind-Value="_currentPassword" Label="Current Password" Required="true" RequiredError="Password cannot be empty"
-                      InputType="@_currentPasswordInput" Adornment="Adornment.End"
-                      AdornmentIcon="@_currentPasswordInputIcon" OnAdornmentClick="ToggleCurrentPasswordVisibility" />
-        <MudTextField @bind-Value="_newPassword" Label="New Password" Required="true" RequiredError="Password cannot be empty"
-                      InputType="@_passwordInput" Adornment="Adornment.End"
-                      AdornmentIcon="@_passwordInputIcon" OnAdornmentClick="TogglePasswordVisibility" />
-        <MudTextField @bind-Value="_confirmPassword" Label="Confirm Password" Required="true" RequiredError="Password cannot be empty"
-                      InputType="@_passwordInput" Adornment="Adornment.End"
-                      AdornmentIcon="@_passwordInputIcon" OnAdornmentClick="TogglePasswordVisibility" />
-    </MudCardContent>
-    <MudCardActions>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ChangePasswordAsync"
-                   Class="ml-auto">Submit</MudButton>
-    </MudCardActions>
-</MudCard>
-
-<MudThemeProvider/>
-<MudDialogProvider/>
-<MudSnackbarProvider/>
+    }
+}

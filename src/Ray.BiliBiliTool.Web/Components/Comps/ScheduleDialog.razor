@@ -5,12 +5,12 @@
 <MudDialog>
     <DialogContent>
         <MudButtonGroup OverrideStyles="false" Class="pb-4">
-            <MudButton Color="Color.Default" Size="Size.Large" DisableElevation="true"
+            <MudButton Color="Color.Default" Size="Size.Large"
                     Variant="@(SelectedTab == ScheduleDialogTab.Job ? Variant.Filled : Variant.Text)"
-                    OnClick="() => OnSelectedTabChanged(ScheduleDialogTab.Job)">Job Details</MudButton>
-            <MudButton Color="Color.Default" Size="Size.Large" DisableElevation="true"
+                    OnClick="() => OnSelectedTabChanged(ScheduleDialogTab.Job)">任务详情</MudButton>
+            <MudButton Color="Color.Default" Size="Size.Large"
                     Variant="@(SelectedTab == ScheduleDialogTab.Trigger ? Variant.Filled : Variant.Text)"
-                    OnClick="() => OnSelectedTabChanged(ScheduleDialogTab.Trigger)">Trigger Details</MudButton>
+                    OnClick="() => OnSelectedTabChanged(ScheduleDialogTab.Trigger)">触发器详情</MudButton>
         </MudButtonGroup>
 
         @if (SelectedTab == ScheduleDialogTab.Job)
@@ -26,7 +26,7 @@
     <DialogActions>
         <div class="d-flex justify-space-between flex-grow-1 pa-3">
             <MudButton OnClick="OnCancel" Variant="Variant.Filled"
-                Style="width: 100px;">Cancel</MudButton>
+                Style="width: 100px;">取消</MudButton>
             <div class="d-flex gap-4">
                 <MudButton @ref="_backBtn"
                     Style="width: 100px;"
@@ -34,7 +34,7 @@
                     Color="Color.Secondary"
                     StartIcon="@Icons.Material.Filled.NavigateBefore"
                     Variant="Variant.Filled"
-                    OnClick="OnBack">Back</MudButton>
+                    OnClick="OnBack">上一步</MudButton>
                 <MudButton Color="Color.Primary"
                     Style="width: 100px;"
                     OnClick="OnSubmit"
@@ -57,7 +57,7 @@
     private bool _triggerDetailIsValid;
 
     private MudButton _backBtn = null!;
-    private string _nextText = "Next";
+    private string _nextText = "下一步";
     private string? _nextIcon = Icons.Material.Filled.NavigateNext;
 
     private BlazingJob _jobPanel = null!;
@@ -68,7 +68,7 @@
         if (SelectedTab == ScheduleDialogTab.Trigger)
         {
             _jobDetailIsValid = true;
-            _nextText = "Save";
+            _nextText = "保存";
             _nextIcon = null;
         }
     }
@@ -91,7 +91,7 @@
         // update text
         if (SelectedTab == ScheduleDialogTab.Job)
         {
-            _nextText = "Next";
+            _nextText = "下一步";
             _nextIcon = Icons.Material.Filled.NavigateNext;
         }
         else if (SelectedTab == ScheduleDialogTab.Trigger)
@@ -105,7 +105,7 @@
                 if (!exists)
                     TriggerDetail.Name = JobDetail.Name;
             }
-            _nextText = "Save";
+            _nextText = "保存";
             _nextIcon = null;
         }
     }
@@ -135,4 +135,3 @@
 
     void OnCancel() => MudDialog.CloseAsync();
 }
-

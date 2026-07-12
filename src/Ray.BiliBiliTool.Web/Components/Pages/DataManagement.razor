@@ -1,0 +1,259 @@
+@rendermode InteractiveServer
+@using Ray.BiliBiliTool.Web.Services
+@inject IDataMaintenanceService DataMaintenanceService
+@inject IDialogService DialogService
+@inject IWebAuditLog AuditLog
+
+<PageTitle>数据管理</PageTitle>
+
+<section class="bibi-page">
+    <header class="bibi-page-header">
+        <div>
+            <p class="bibi-eyebrow">数据管理</p>
+            <h1 class="bibi-title">日志、历史和本地数据清理</h1>
+            <p class="bibi-subtitle">这里只处理可安全清理的日志和运行历史。账号、Cookie、浏览器登录态、任务配置和发布台账默认受保护，避免误删后影响日常运行。</p>
+        </div>
+        <div class="bibi-actions">
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Refresh"
+                       Disabled="@_isLoading"
+                       OnClick="LoadAsync">
+                刷新数据
+            </MudButton>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <MudAlert Severity="@(_lastActionSuccess ? Severity.Success : Severity.Warning)" Variant="Variant.Outlined">
+            @_message
+        </MudAlert>
+    }
+
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        清理日志不会删除账号、配置、Cookie、浏览器资料目录或内容自动化台账。需要清除登录态时，请先在账号中心确认影响范围。
+    </MudAlert>
+
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="6" md="3">
+            <div class="bibi-metric">
+                <span class="bibi-metric__label">数据分区</span>
+                <span class="bibi-metric__value">@_snapshot.Areas.Count</span>
+                <span class="bibi-metric__hint">日志、历史、配置、业务数据</span>
+            </div>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <div class="bibi-metric">
+                <span class="bibi-metric__label">可安全清理</span>
+                <span class="bibi-metric__value">@_snapshot.Areas.Count(x => x.CanClean)</span>
+                <span class="bibi-metric__hint">仅限日志和历史</span>
+            </div>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <div class="bibi-metric">
+                <span class="bibi-metric__label">文件占用</span>
+                <span class="bibi-metric__value">@FormatBytes(_snapshot.Areas.Sum(x => x.SizeBytes))</span>
+                <span class="bibi-metric__hint">数据库和日志文件</span>
+            </div>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <div class="bibi-metric">
+                <span class="bibi-metric__label">最近刷新</span>
+                <span class="bibi-metric__value">@_snapshot.GeneratedAt.LocalDateTime.ToString("HH:mm")</span>
+                <span class="bibi-metric__hint">@_snapshot.GeneratedAt.LocalDateTime.ToString("yyyy-MM-dd")</span>
+            </div>
+        </MudItem>
+    </MudGrid>
+
+    <section class="bibi-panel">
+        <div class="bibi-panel__header">
+            <h2 class="bibi-panel__title">数据分区</h2>
+            <span class="bibi-status-chip bibi-status-chip--info">中文说明</span>
+        </div>
+        <div class="bibi-panel__body">
+            <MudDataGrid Items="@_snapshot.Areas"
+                         Dense="true"
+                         Hover="true"
+                         Loading="@_isLoading"
+                         Breakpoint="Breakpoint.None"
+                         RowsPerPage="20">
+                <Columns>
+                    <PropertyColumn Title="数据类型" Property="x => x.Name" />
+                    <PropertyColumn Title="说明" Property="x => x.Description" />
+                    <TemplateColumn Title="数量">
+                        <CellTemplate>@context.Item.ItemCount</CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="大小">
+                        <CellTemplate>@FormatBytes(context.Item.SizeBytes)</CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="最近更新">
+                        <CellTemplate>@FormatTime(context.Item.LastUpdated)</CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Title="位置" Property="x => x.Location" />
+                    <TemplateColumn Title="清理策略">
+                        <CellTemplate>
+                            <span class="@(context.Item.CanClean ? "bibi-status-chip bibi-status-chip--success" : "bibi-status-chip bibi-status-chip--warning")">
+                                @(context.Item.CanClean ? "允许安全清理" : "受保护")
+                            </span>
+                            <div class="bibi-muted-line">@context.Item.SafetyNote</div>
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+            </MudDataGrid>
+        </div>
+    </section>
+
+    <section class="bibi-panel">
+        <div class="bibi-panel__header">
+            <h2 class="bibi-panel__title">安全清理</h2>
+            <span class="bibi-status-chip bibi-status-chip--warning">需要二次确认</span>
+        </div>
+        <div class="bibi-panel__body">
+            <MudGrid>
+                <MudItem xs="12" md="3">
+                    <MudNumericField T="int"
+                                     @bind-Value="_retentionDays"
+                                     Label="保留最近天数"
+                                     Min="1"
+                                     Max="365" />
+                </MudItem>
+                <MudItem xs="12" md="9">
+                    <MudStack Row="true" Spacing="1" Class="mt-2">
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.History"
+                                   Disabled="@_isBusy"
+                                   OnClick="CleanExecutionLogsAsync">
+                            清理过期执行历史
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.Article"
+                                   Disabled="@_isBusy"
+                                   OnClick="CleanSystemLogsAsync">
+                            清理过期系统日志
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.FolderDelete"
+                                   Disabled="@_isBusy"
+                                   OnClick="CleanLogFilesAsync">
+                            清理过期日志文件
+                        </MudButton>
+                    </MudStack>
+                </MudItem>
+            </MudGrid>
+        </div>
+    </section>
+</section>
+
+@code {
+    private bool _isLoading = true;
+    private bool _isBusy;
+    private bool _lastActionSuccess = true;
+    private int _retentionDays = 30;
+    private string _message = "";
+    private DataMaintenanceSnapshot _snapshot = new()
+    {
+        GeneratedAt = DateTimeOffset.Now,
+        Areas = []
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+        try
+        {
+            _snapshot = await DataMaintenanceService.GetSnapshotAsync();
+        }
+        catch (Exception ex)
+        {
+            _lastActionSuccess = false;
+            _message = $"数据统计加载失败：{ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private Task CleanExecutionLogsAsync()
+    {
+        return ConfirmAndRunAsync(
+            "清理执行历史",
+            $"确认清理 {_retentionDays} 天前的执行历史？这不会删除任务配置、账号、Cookie 或台账。",
+            () => DataMaintenanceService.CleanExpiredExecutionLogsAsync(_retentionDays),
+            "清理执行历史");
+    }
+
+    private Task CleanSystemLogsAsync()
+    {
+        return ConfirmAndRunAsync(
+            "清理系统日志",
+            $"确认清理 {_retentionDays} 天前写入数据库的系统日志？这不会删除业务数据。",
+            () => DataMaintenanceService.CleanExpiredSystemLogsAsync(_retentionDays),
+            "清理系统日志");
+    }
+
+    private Task CleanLogFilesAsync()
+    {
+        return ConfirmAndRunAsync(
+            "清理日志文件",
+            $"确认清理 {_retentionDays} 天前的 .txt / .log 日志文件？正在被占用的文件会自动跳过。",
+            () => DataMaintenanceService.CleanExpiredLogFilesAsync(_retentionDays),
+            "清理日志文件");
+    }
+
+    private async Task ConfirmAndRunAsync(
+        string title,
+        string message,
+        Func<Task<DataMaintenanceActionResult>> action,
+        string auditAction)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            title,
+            message,
+            yesText: "确认清理",
+            cancelText: "取消");
+
+        if (confirmed != true)
+            return;
+
+        _isBusy = true;
+        _message = "";
+        try
+        {
+            var result = await action();
+            _lastActionSuccess = result.Success;
+            _message = result.Message;
+            await AuditLog.AddAsync("本地用户", auditAction, $"保留最近 {_retentionDays} 天", result.Message);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _lastActionSuccess = false;
+            _message = $"清理失败：{ex.Message}";
+            await AuditLog.AddAsync("本地用户", auditAction, $"保留最近 {_retentionDays} 天", _message);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        return Ray.BiliBiliTool.Web.Services.DataMaintenanceService.FormatBytes(bytes);
+    }
+
+    private static string FormatTime(DateTimeOffset? value)
+    {
+        return value.HasValue ? value.Value.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss") : "无记录";
+    }
+}

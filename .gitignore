@@ -380,3 +380,16 @@ bruno/.env
 
 # db
 src/**/BiliBiliTool.db*
+
+# Local BIBI workbench state and delivery artifacts
+config/
+data/
+src/Ray.BiliBiliTool.Web/Data/
+output/
+Logs/
+.codex-verify/
+.playwright-cli/
+docs/superpowers/
+*.err.log
+*.out.log
+src/Ray.BiliBiliTool.Web/Executor/__pycache__/

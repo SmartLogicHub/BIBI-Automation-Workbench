@@ -135,6 +135,13 @@
     border-radius: 0 0 6px 6px;
 }
 
+.log-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
 /* 光标效果 */
 .cursor::after {
     content: "$_";

@@ -1,0 +1,1088 @@
+@page "/workflows"
+@page "/MaintenanceWorkflows"
+@page "/FarmingTasks"
+@rendermode InteractiveServer
+@implements IDisposable
+@using Ray.BiliBiliTool.Application.Contracts.ContentAutomation
+@using Ray.BiliBiliTool.Application.Contracts.MaintenanceWorkflows
+@using Ray.BiliBiliTool.Web.Components.Pages.MaintenanceWorkflow
+@using Ray.BiliBiliTool.Web.Services
+@inject IMaintenanceWorkflowService WorkflowService
+@inject IContentAutomationBridge AutomationBridge
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>养号流程</PageTitle>
+
+<section class="workflow-page @(_showEditor ? "workflow-page--editor" : "workflow-page--list")">
+    @if (!_showEditor)
+    {
+        <header class="bibi-page-header workflow-list-header">
+            <div>
+                <p class="bibi-eyebrow">自动养号</p>
+                <h1 class="bibi-title">养号流程</h1>
+                <p class="bibi-subtitle">组合日常任务和随机互动，为不同账号安排稳定的养号节奏。</p>
+            </div>
+            <div class="workflow-list-create">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Add"
+                           Disabled="@_isBusy"
+                           aria-label="新建流程"
+                           OnClick="CreateWorkflowAsync">
+                    新建流程
+                </MudButton>
+            </div>
+        </header>
+
+        <div class="workflow-list-toolbar">
+            <div>
+                <strong>@_workflows.Count</strong>
+                <span>个流程</span>
+                <i></i>
+                <span>@_workflows.Count(item => item.IsEnabled) 个已启用</span>
+            </div>
+            <MudTooltip Text="刷新">
+                <MudIconButton Icon="@Icons.Material.Outlined.Refresh"
+                               Disabled="@_isLoading"
+                               OnClick="LoadListAsync"
+                               aria-label="刷新流程列表" />
+            </MudTooltip>
+        </div>
+
+        @if (_isLoading)
+        {
+            <div class="workflow-list-grid" aria-label="正在加载养号流程">
+                @for (var index = 0; index < 3; index++)
+                {
+                    <div class="workflow-list-skeleton"></div>
+                }
+            </div>
+        }
+        else if (_workflows.Count == 0)
+        {
+            <div class="workflow-list-empty">
+                <MudIcon Icon="@Icons.Material.Outlined.AccountTree" />
+                <strong>还没有养号流程</strong>
+                <span>新建流程后即可添加每日任务和随机互动。</span>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateWorkflowAsync">新建流程</MudButton>
+            </div>
+        }
+        else
+        {
+            <div class="workflow-list-grid">
+                @foreach (var workflow in _workflows.OrderByDescending(item => item.UpdatedAt))
+                {
+                    var latestRun = LatestRun(workflow.Id);
+                    var isRunning = IsWorkflowRunning(workflow.Id);
+                    <article class="workflow-list-card">
+                        <div class="workflow-list-card__accent"></div>
+                        <header>
+                            <span class="workflow-list-card__icon">
+                                <MudIcon Icon="@Icons.Material.Outlined.AccountTree" Size="Size.Small" />
+                            </span>
+                            <span class="workflow-state @StateClass(workflow.IsEnabled)">
+                                <i></i>@(workflow.IsEnabled ? "已启用" : "已停用")
+                            </span>
+                            <div class="workflow-card-editor-actions">
+                                <MudMenu Icon="@Icons.Material.Filled.MoreHoriz"
+                                         Size="Size.Small"
+                                         AnchorOrigin="Origin.BottomRight"
+                                         TransformOrigin="Origin.TopRight"
+                                         AriaLabel="更多流程操作">
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.ContentCopy" OnClick="@(() => CopyWorkflowAsync(workflow.Id))">复制</MudMenuItem>
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="@(() => DeleteWorkflowAsync(workflow))">删除</MudMenuItem>
+                                </MudMenu>
+                            </div>
+                        </header>
+
+                        <button class="workflow-list-card__open"
+                                type="button"
+                                aria-label="@($"打开流程：{workflow.Name}")"
+                                @onclick="@(() => OpenEditorAsync(workflow.Id))">
+                            <strong>@workflow.Name</strong>
+                            <span>@WorkflowSummary(workflow)</span>
+                        </button>
+
+                        <dl class="workflow-list-card__facts">
+                            <div><dt>节点</dt><dd>@workflow.Steps.Count</dd></div>
+                            <div><dt>参与账号</dt><dd>@AccountSummary(workflow)</dd></div>
+                            <div><dt>最近运行</dt><dd>@RunSummary(latestRun)</dd></div>
+                        </dl>
+
+                        <footer>
+                            <div class="workflow-list-card__meta">
+                                <span>@UpdatedText(workflow.UpdatedAt)</span>
+                                @if (latestRun is not null)
+                                {
+                                    <button type="button" @onclick="@(() => OpenRunLog(workflow.Id))">查看记录</button>
+                                }
+                            </div>
+                            <div class="workflow-list-card__actions">
+                                @if (isRunning)
+                                {
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Error"
+                                               StartIcon="@Icons.Material.Filled.Stop"
+                                               aria-label="@($"停止{workflow.Name}")"
+                                               OnClick="@(() => StopWorkflowFromListAsync(workflow.Id))">
+                                        停止
+                                    </MudButton>
+                                }
+                                else
+                                {
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="Color.Primary"
+                                               StartIcon="@Icons.Material.Filled.PlayArrow"
+                                               Disabled="@(_isBusy || !workflow.IsEnabled || workflow.Steps.Count == 0 || !HasRunnableAccounts(workflow))"
+                                               aria-label="@($"运行{workflow.Name}")"
+                                               OnClick="@(() => RunWorkflowFromListAsync(workflow))">
+                                        运行
+                                    </MudButton>
+                                }
+                                <MudButton Variant="Variant.Text"
+                                           EndIcon="@Icons.Material.Filled.ArrowForward"
+                                           aria-label="@($"打开流程：{workflow.Name}")"
+                                           OnClick="@(() => OpenEditorAsync(workflow.Id))">
+                                    打开
+                                </MudButton>
+                            </div>
+                        </footer>
+                    </article>
+                }
+            </div>
+        }
+    }
+    else
+    {
+        <div class="workflow-editor-layout">
+            <header class="workflow-editor-topbar">
+                <div class="workflow-editor-topbar__identity">
+                    <MudTooltip Text="返回流程列表">
+                        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
+                                       OnClick="BackToListAsync"
+                                       aria-label="返回流程列表" />
+                    </MudTooltip>
+                    <div>
+                        <span>养号流程</span>
+                        <strong>@_editing.Name</strong>
+                    </div>
+                </div>
+
+                <div class="workflow-save-state @SaveStateClass">
+                    <MudIcon Icon="@SaveStateIcon" Size="Size.Small" />
+                    <span>@_saveState</span>
+                </div>
+
+                <div class="workflow-editor-topbar__actions">
+                    <div class="workflow-editor-desktop-actions">
+                        <MudTooltip Text="流程设置">
+                            <MudIconButton Icon="@Icons.Material.Outlined.Tune"
+                                           OnClick="OpenSettingsAsync"
+                                           aria-label="流程设置" />
+                        </MudTooltip>
+                        <MudTooltip Text="运行记录">
+                            <MudIconButton Icon="@Icons.Material.Outlined.ReceiptLong"
+                                           OnClick="OpenRunLog"
+                                           aria-label="运行记录" />
+                        </MudTooltip>
+                    </div>
+                    @if (_isRunning)
+                    {
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Error"
+                                   StartIcon="@Icons.Material.Filled.Stop"
+                                   aria-label="停止流程"
+                                   OnClick="StopRunAsync">
+                            停止
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                                   Disabled="@(_isBusy || _steps.Count == 0 || !_editing.IsEnabled || !HasRunnableAccounts(_editing))"
+                                   aria-label="运行流程"
+                                   OnClick="RunWorkflowAsync">
+                            运行流程
+                        </MudButton>
+                    }
+                </div>
+            </header>
+
+            <div class="workflow-editor-surface">
+                <WorkflowEditorHost WorkflowKey="@(_editing.Id + ":" + _editorSession)"
+                                    Nodes="@_nodeCatalog"
+                                    Steps="@_steps"
+                                    Edges="@_edges"
+                                    RunningStates="@_nodeRunningStates"
+                                    ViewportX="@_editing.ViewportX"
+                                    ViewportY="@_editing.ViewportY"
+                                    ViewportZoom="@_editing.ViewportZoom"
+                                    ExternalVersion="@_externalVersion"
+                                    Changed="OnEditorChangedAsync"
+                                    NodeSelected="OnNodeSelectedAsync"
+                                    MessageRaised="OnEditorMessageAsync" />
+            </div>
+        </div>
+
+        <MudDrawer @bind-Open="_isNodeDrawerOpen"
+                   Anchor="Anchor.End"
+                   Variant="DrawerVariant.Temporary"
+                   Width="min(380px, 100vw)"
+                   Elevation="8"
+                   Class="workflow-side-drawer">
+            <header class="workflow-drawer-header">
+                <strong>节点设置</strong>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="@(() => _isNodeDrawerOpen = false)" aria-label="关闭" />
+            </header>
+            <WorkflowNodeConfig SelectedStep="@_selectedStep"
+                                SelectedNode="@SelectedNode"
+                                Changed="OnNodeConfigChangedAsync"
+                                DeleteRequested="DeleteSelectedNodeAsync" />
+        </MudDrawer>
+
+        <MudDrawer @bind-Open="_isSettingsDrawerOpen"
+                   Anchor="Anchor.End"
+                   Variant="DrawerVariant.Temporary"
+                   Width="min(400px, 100vw)"
+                   Elevation="8"
+                   Class="workflow-side-drawer">
+            <header class="workflow-drawer-header">
+                <strong>流程设置</strong>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="@(() => _isSettingsDrawerOpen = false)" aria-label="关闭" />
+            </header>
+
+            <div class="workflow-settings">
+                <section>
+                    <h3>基本信息</h3>
+                    <MudTextField T="string"
+                                  Value="@_editing.Name"
+                                  ValueChanged="SetWorkflowNameAsync"
+                                  Label="流程名称"
+                                  Margin="Margin.Dense"
+                                  Variant="Variant.Outlined" />
+                    <MudTextField T="string"
+                                  Value="@_editing.TimeWindow"
+                                  ValueChanged="SetTimeWindowAsync"
+                                  Label="运行时段（可选）"
+                                  Placeholder="09:00-18:00"
+                                  Margin="Margin.Dense"
+                                  Variant="Variant.Outlined" />
+                    <MudSelect T="int"
+                               Value="@_editing.MaxRuntimeMinutes"
+                               ValueChanged="SetMaxRuntimeAsync"
+                               Label="单次最长运行"
+                               Margin="Margin.Dense"
+                               Variant="Variant.Outlined">
+                        <MudSelectItem Value="30">30 分钟</MudSelectItem>
+                        <MudSelectItem Value="60">1 小时</MudSelectItem>
+                        <MudSelectItem Value="120">2 小时</MudSelectItem>
+                        <MudSelectItem Value="240">4 小时</MudSelectItem>
+                    </MudSelect>
+                    <div class="workflow-settings__switch">
+                        <div>
+                            <strong>启用流程</strong>
+                            <span>停用后不参与自动运行</span>
+                        </div>
+                        <MudSwitch T="bool" Value="@_editing.IsEnabled" ValueChanged="SetWorkflowEnabledAsync" Color="Color.Primary" />
+                    </div>
+                </section>
+
+                <section>
+                    <h3>参与账号</h3>
+                    @if (_accountsLoading)
+                    {
+                        <div class="workflow-account-loading"></div>
+                    }
+                    else if (_accounts.Count == 0)
+                    {
+                        <div class="workflow-settings__empty">
+                            <span>暂无可选账号</span>
+                            <MudLink Href="/accounts">前往账号管理</MudLink>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="workflow-account-option workflow-account-option--all">
+                            <MudCheckBox T="bool" Value="@_useAllAccounts" ValueChanged="SetUseAllAccountsAsync" Color="Color.Primary" />
+                            <div><strong>全部可用账号</strong><span>新增账号也会自动加入</span></div>
+                        </div>
+                        <div class="workflow-account-list">
+                            @foreach (var account in _accounts)
+                            {
+                                <div class="workflow-account-option">
+                                    <MudCheckBox T="bool"
+                                                 Value="@IsAccountSelected(account)"
+                                                 ValueChanged="@((bool value) => ToggleAccountAsync(account, value))"
+                                                 Disabled="@_useAllAccounts"
+                                                 Color="Color.Primary" />
+                                    <span class="workflow-account-avatar">@AccountInitial(account)</span>
+                                    <div>
+                                        <strong>@AccountDisplayName(account)</strong>
+                                        <span>@(!string.IsNullOrWhiteSpace(account.Uid) ? $"UID {account.Uid}" : "等待登录")</span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </section>
+
+            </div>
+        </MudDrawer>
+
+    }
+
+    <MudDrawer @bind-Open="_isRunLogDrawerOpen"
+               Anchor="Anchor.End"
+               Variant="DrawerVariant.Temporary"
+               Width="min(440px, 100vw)"
+               Elevation="8"
+               Class="workflow-side-drawer">
+        <header class="workflow-drawer-header">
+            <strong>运行记录</strong>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="@(() => _isRunLogDrawerOpen = false)" aria-label="关闭" />
+        </header>
+        <WorkflowRunLog CurrentRun="@_currentRun"
+                        DeleteRun="DeleteRunAsync"
+                        ClearHistory="ClearRunHistoryAsync" />
+    </MudDrawer>
+</section>
+
+@code {
+    private const string Skip = "skip";
+
+    private readonly SemaphoreSlim _saveLock = new(1, 1);
+    private readonly HashSet<string> _runningWorkflowIds = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _saveDebounce;
+    private bool _isLoading = true;
+    private bool _isBusy;
+    private bool _showEditor;
+    private bool _isNodeDrawerOpen;
+    private bool _isSettingsDrawerOpen;
+    private bool _isRunLogDrawerOpen;
+    private bool _isRunning;
+    private bool _accountsLoading;
+    private bool _accountsLoaded;
+    private bool _useAllAccounts = true;
+    private int _externalVersion;
+    private int _editorSession;
+    private string _saveState = "已保存";
+    private List<MaintenanceWorkflowNodeDefinition> _nodeCatalog = [];
+    private List<MaintenanceWorkflowDefinition> _workflows = [];
+    private List<MaintenanceWorkflowRunRecord> _runs = [];
+    private List<ContentAutomationAccount> _accounts = [];
+    private MaintenanceWorkflowDefinition _editing = new();
+    private List<MaintenanceWorkflowStep> _steps = [];
+    private List<MaintenanceWorkflowEdge> _edges = [];
+    private MaintenanceWorkflowStep? _selectedStep;
+    private MaintenanceWorkflowRunRecord? _currentRun;
+    private Dictionary<string, string> _nodeRunningStates = new(StringComparer.OrdinalIgnoreCase);
+
+    private MaintenanceWorkflowNodeDefinition? SelectedNode => _selectedStep is null
+        ? null
+        : _nodeCatalog.FirstOrDefault(item => item.NodeType == _selectedStep.NodeType);
+
+    private string SaveStateIcon => _saveState switch
+    {
+        "正在保存" => Icons.Material.Outlined.Sync,
+        "保存失败" => Icons.Material.Outlined.ErrorOutline,
+        _ => Icons.Material.Outlined.CloudDone
+    };
+
+    private string SaveStateClass => _saveState == "保存失败" ? "is-error" : _saveState == "正在保存" ? "is-saving" : "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadListAsync();
+    }
+
+    private async Task LoadListAsync()
+    {
+        _isLoading = true;
+        try
+        {
+            var nodeCatalogTask = WorkflowService.GetNodeCatalogAsync();
+            var workflowsTask = WorkflowService.GetWorkflowsAsync();
+            var runsTask = WorkflowService.GetRunsAsync();
+            var accountsTask = GetAvailableAccountsAsync();
+            await Task.WhenAll(nodeCatalogTask, workflowsTask, runsTask, accountsTask);
+            _nodeCatalog = (await nodeCatalogTask).ToList();
+            _workflows = (await workflowsTask).ToList();
+            _runs = (await runsTask).ToList();
+            _accounts = await accountsTask;
+            _accountsLoaded = true;
+        }
+        catch
+        {
+            Snackbar.Add("养号流程暂时无法加载，请稍后重试。", Severity.Error);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task CreateWorkflowAsync()
+    {
+        _isBusy = true;
+        try
+        {
+            var saved = await WorkflowService.SaveWorkflowAsync(new MaintenanceWorkflowDefinition
+            {
+                Name = NextWorkflowName(),
+                IsEnabled = true,
+                TimeWindow = "",
+                MaxRuntimeMinutes = 120,
+                FailureStrategy = Skip,
+                ViewportZoom = 1
+            });
+            _workflows.Insert(0, saved);
+            await OpenEditorAsync(saved.Id);
+            await OpenSettingsAsync();
+        }
+        catch
+        {
+            Snackbar.Add("新流程创建失败，请稍后重试。", Severity.Error);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task OpenEditorAsync(string workflowId)
+    {
+        var workflow = await WorkflowService.GetWorkflowAsync(workflowId);
+        if (workflow is null)
+        {
+            Snackbar.Add("这个流程已不存在。", Severity.Warning);
+            await LoadListAsync();
+            return;
+        }
+
+        var allowedTypes = _nodeCatalog.Select(item => item.NodeType).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _editing = CloneWorkflowShell(workflow);
+        _steps = workflow.Steps
+            .Where(step => allowedTypes.Contains(step.NodeType))
+            .OrderBy(step => step.SortOrder)
+            .Select(CloneStep)
+            .ToList();
+        var stepIds = _steps.Select(step => step.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _edges = workflow.Edges
+            .Where(edge => stepIds.Contains(edge.SourceStepId) && stepIds.Contains(edge.TargetStepId))
+            .Select(CloneEdge)
+            .ToList();
+        _selectedStep = null;
+        _currentRun = LatestRun(workflow.Id);
+        _useAllAccounts = workflow.AccountIds.Count == 0;
+        _nodeRunningStates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        _isNodeDrawerOpen = false;
+        _isSettingsDrawerOpen = false;
+        _isRunLogDrawerOpen = false;
+        _saveState = "已保存";
+        _externalVersion++;
+        _editorSession++;
+        _showEditor = true;
+    }
+
+    private async Task BackToListAsync()
+    {
+        await SaveCurrentAsync();
+        _showEditor = false;
+        _isNodeDrawerOpen = false;
+        _isSettingsDrawerOpen = false;
+        _isRunLogDrawerOpen = false;
+        _runs = (await WorkflowService.GetRunsAsync()).ToList();
+    }
+
+    private async Task CopyWorkflowAsync(string workflowId)
+    {
+        var copy = await WorkflowService.CopyWorkflowAsync(workflowId);
+        if (copy is null)
+        {
+            Snackbar.Add("流程复制失败，请稍后重试。", Severity.Error);
+            return;
+        }
+
+        _workflows.Insert(0, copy);
+        Snackbar.Add("流程已复制。", Severity.Success);
+    }
+
+    private async Task DeleteWorkflowAsync(MaintenanceWorkflowDefinition workflow)
+    {
+        if (IsWorkflowRunning(workflow.Id))
+        {
+            Snackbar.Add("请先停止正在运行的流程，再执行删除。", Severity.Warning);
+            return;
+        }
+
+        var confirmed = await DialogService.ShowMessageBox(
+            "删除流程",
+            $"确定删除“{workflow.Name}”吗？该流程的运行记录也会一并删除。",
+            yesText: "删除",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        if (await WorkflowService.DeleteWorkflowAsync(workflow.Id))
+        {
+            _workflows.RemoveAll(item => item.Id == workflow.Id);
+            _runs.RemoveAll(item => item.WorkflowId == workflow.Id);
+            Snackbar.Add("流程已删除。", Severity.Success);
+        }
+        else
+        {
+            Snackbar.Add("流程删除失败，请稍后重试。", Severity.Error);
+        }
+    }
+
+    private Task OnEditorChangedAsync(WorkflowEditorHost.WorkflowEditorState state)
+    {
+        var selectedId = _selectedStep?.Id;
+        _steps = state.Steps.OrderBy(step => step.SortOrder).Select(CloneStep).ToList();
+        _edges = state.Edges.Select(CloneEdge).ToList();
+        _editing.ViewportX = state.ViewportX;
+        _editing.ViewportY = state.ViewportY;
+        _editing.ViewportZoom = state.ViewportZoom;
+        _selectedStep = string.IsNullOrWhiteSpace(selectedId)
+            ? null
+            : _steps.FirstOrDefault(step => step.Id == selectedId);
+        if (_selectedStep is null)
+            _isNodeDrawerOpen = false;
+        ScheduleAutoSave();
+        return Task.CompletedTask;
+    }
+
+    private Task OnNodeSelectedAsync(string stepId)
+    {
+        _selectedStep = _steps.FirstOrDefault(step => step.Id == stepId);
+        _isNodeDrawerOpen = _selectedStep is not null;
+        return Task.CompletedTask;
+    }
+
+    private Task OnEditorMessageAsync(string message)
+    {
+        if (!string.IsNullOrWhiteSpace(message))
+            Snackbar.Add(message, Severity.Warning);
+        return Task.CompletedTask;
+    }
+
+    private Task OnNodeConfigChangedAsync()
+    {
+        _externalVersion++;
+        ScheduleAutoSave();
+        return Task.CompletedTask;
+    }
+
+    private async Task DeleteSelectedNodeAsync()
+    {
+        if (_selectedStep is null)
+            return;
+
+        var selectedId = _selectedStep.Id;
+        var hasConnections = _edges.Any(edge => edge.SourceStepId == selectedId || edge.TargetStepId == selectedId);
+        var message = hasConnections
+            ? "删除节点会同时删除与它相连的线，确定继续吗？"
+            : "确定删除这个节点吗？";
+        var confirmed = await DialogService.ShowMessageBox(
+            "删除节点",
+            message,
+            yesText: "删除",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        _steps.RemoveAll(step => step.Id == selectedId);
+        _edges.RemoveAll(edge => edge.SourceStepId == selectedId || edge.TargetStepId == selectedId);
+        _selectedStep = null;
+        _isNodeDrawerOpen = false;
+        _externalVersion++;
+        ScheduleAutoSave();
+        Snackbar.Add("节点及其连线已删除。", Severity.Success);
+    }
+
+    private void ScheduleAutoSave()
+    {
+        _saveDebounce?.Cancel();
+        _saveDebounce?.Dispose();
+        _saveDebounce = new CancellationTokenSource();
+        _saveState = "正在保存";
+        _ = SaveAfterDelayAsync(_saveDebounce.Token);
+    }
+
+    private async Task SaveAfterDelayAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(700, cancellationToken);
+            await InvokeAsync(SaveCurrentAsync);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task SaveCurrentAsync()
+    {
+        if (!_showEditor || string.IsNullOrWhiteSpace(_editing.Id))
+            return;
+
+        await _saveLock.WaitAsync();
+        try
+        {
+            _editing.Name = string.IsNullOrWhiteSpace(_editing.Name) ? "未命名养号流程" : _editing.Name.Trim();
+            _editing.AccountIds = _useAllAccounts ? [] : _editing.AccountIds;
+            _editing.Steps = _steps.Select(CloneStep).ToList();
+            _editing.Edges = _edges.Select(CloneEdge).ToList();
+            var saved = await WorkflowService.SaveWorkflowAsync(_editing);
+            _editing.UpdatedAt = saved.UpdatedAt;
+            _editing.SchemaVersion = saved.SchemaVersion;
+            var index = _workflows.FindIndex(item => item.Id == saved.Id);
+            if (index >= 0)
+                _workflows[index] = saved;
+            else
+                _workflows.Add(saved);
+            _saveState = $"已保存 {DateTime.Now:HH:mm}";
+        }
+        catch (InvalidOperationException ex)
+        {
+            _saveState = "保存失败";
+            Snackbar.Add(ex.Message, Severity.Warning);
+        }
+        catch
+        {
+            _saveState = "保存失败";
+            Snackbar.Add("流程保存失败，请稍后重试。", Severity.Error);
+        }
+        finally
+        {
+            _saveLock.Release();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task RunWorkflowAsync()
+    {
+        await SaveCurrentAsync();
+        if (_saveState == "保存失败" || string.IsNullOrWhiteSpace(_editing.Id))
+            return;
+        if (!HasRunnableAccounts(_editing))
+        {
+            Snackbar.Add("没有可用账号，请先在账号管理中完成登录。", Severity.Warning);
+            return;
+        }
+
+        _isRunning = true;
+        _isBusy = true;
+        _runningWorkflowIds.Add(_editing.Id);
+        _isRunLogDrawerOpen = true;
+        _nodeRunningStates = _steps.ToDictionary(step => step.Id, _ => "", StringComparer.OrdinalIgnoreCase);
+        StateHasChanged();
+
+        try
+        {
+            _currentRun = await ExecuteAndObserveWorkflowAsync(_editing.Id, updateCanvas: true);
+            foreach (var log in _currentRun.StepLogs)
+                _nodeRunningStates[log.StepId] = NodeRunState(log.Status);
+            _runs = (await WorkflowService.GetRunsAsync()).ToList();
+            Snackbar.Add(
+                _currentRun.Status == MaintenanceWorkflowRunStatus.Completed ? "养号流程已完成。" : RunSummary(_currentRun),
+                _currentRun.Status == MaintenanceWorkflowRunStatus.Completed ? Severity.Success : Severity.Warning);
+        }
+        catch
+        {
+            Snackbar.Add("养号流程运行未完成，请查看运行记录。", Severity.Error);
+        }
+        finally
+        {
+            _runningWorkflowIds.Remove(_editing.Id);
+            _isRunning = false;
+            _isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StopRunAsync()
+    {
+        if (_currentRun is null || string.IsNullOrWhiteSpace(_currentRun.Id))
+            return;
+
+        if (await WorkflowService.StopRunAsync(_currentRun.Id))
+            Snackbar.Add("正在停止当前流程。", Severity.Info);
+    }
+
+    private async Task RunWorkflowFromListAsync(MaintenanceWorkflowDefinition workflow)
+    {
+        if (!workflow.IsEnabled || workflow.Steps.Count == 0 || IsWorkflowRunning(workflow.Id))
+            return;
+        if (!HasRunnableAccounts(workflow))
+        {
+            Snackbar.Add("没有可用账号，请先在账号管理中完成登录。", Severity.Warning);
+            return;
+        }
+        if (_runningWorkflowIds.Count > 0 || _runs.Any(run => IsActiveRun(run.Status)))
+        {
+            Snackbar.Add("已有养号流程正在运行，请先停止后再启动其他流程。", Severity.Warning);
+            return;
+        }
+
+        _runningWorkflowIds.Add(workflow.Id);
+        _currentRun = LatestRun(workflow.Id);
+        _isRunLogDrawerOpen = true;
+        StateHasChanged();
+        try
+        {
+            _currentRun = await ExecuteAndObserveWorkflowAsync(workflow.Id, updateCanvas: false);
+            _runs = (await WorkflowService.GetRunsAsync()).ToList();
+            Snackbar.Add(
+                _currentRun.Status == MaintenanceWorkflowRunStatus.Completed ? "养号流程已完成。" : RunSummary(_currentRun),
+                _currentRun.Status == MaintenanceWorkflowRunStatus.Completed ? Severity.Success : Severity.Warning);
+        }
+        catch
+        {
+            Snackbar.Add("养号流程运行未完成，请查看运行记录。", Severity.Error);
+        }
+        finally
+        {
+            _runningWorkflowIds.Remove(workflow.Id);
+            StateHasChanged();
+        }
+    }
+
+    private async Task<MaintenanceWorkflowRunRecord> ExecuteAndObserveWorkflowAsync(
+        string workflowId,
+        bool updateCanvas)
+    {
+        var runTask = WorkflowService.RunWorkflowAsync(
+            workflowId,
+            new MaintenanceWorkflowRunRequest { DryRun = false });
+
+        while (!runTask.IsCompleted)
+        {
+            await Task.Delay(200);
+            var activeRun = (await WorkflowService.GetRunsAsync())
+                .FirstOrDefault(run => run.WorkflowId == workflowId && IsActiveRun(run.Status));
+            if (activeRun is null)
+                continue;
+
+            _currentRun = activeRun;
+            ReplaceRunSnapshot(activeRun);
+            if (updateCanvas)
+            {
+                foreach (var log in activeRun.StepLogs)
+                    _nodeRunningStates[log.StepId] = NodeRunState(log.Status);
+            }
+            StateHasChanged();
+        }
+
+        var completed = await runTask;
+        ReplaceRunSnapshot(completed);
+        return completed;
+    }
+
+    private async Task StopWorkflowFromListAsync(string workflowId)
+    {
+        var activeRun = (await WorkflowService.GetRunsAsync())
+            .FirstOrDefault(run => run.WorkflowId == workflowId && IsActiveRun(run.Status));
+        if (activeRun is null)
+            return;
+
+        _currentRun = activeRun;
+        _isRunLogDrawerOpen = true;
+        if (await WorkflowService.StopRunAsync(activeRun.Id))
+            Snackbar.Add("正在停止当前流程。", Severity.Info);
+    }
+
+    private void ReplaceRunSnapshot(MaintenanceWorkflowRunRecord run)
+    {
+        _runs.RemoveAll(item => item.Id == run.Id);
+        _runs.Add(run);
+    }
+
+    private async Task DeleteRunAsync(MaintenanceWorkflowRunRecord run)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "删除运行记录",
+            $"确定删除 {run.StartedAt.LocalDateTime:MM-dd HH:mm} 的运行记录吗？",
+            yesText: "删除",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        if (!await WorkflowService.DeleteRunAsync(run.Id))
+        {
+            Snackbar.Add("运行中的记录不能删除。", Severity.Warning);
+            return;
+        }
+
+        _runs.RemoveAll(item => item.Id == run.Id);
+        _currentRun = LatestRun(run.WorkflowId);
+        if (_currentRun is null)
+            _isRunLogDrawerOpen = false;
+        Snackbar.Add("运行记录已删除。", Severity.Success);
+    }
+
+    private async Task ClearRunHistoryAsync(string workflowId)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "清空运行记录",
+            "确定清空这个流程的全部历史运行记录吗？",
+            yesText: "清空",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        var removed = await WorkflowService.ClearRunsAsync(workflowId);
+        _runs.RemoveAll(item => item.WorkflowId == workflowId && !IsActiveRun(item.Status));
+        _currentRun = LatestRun(workflowId);
+        if (_currentRun is null)
+            _isRunLogDrawerOpen = false;
+        Snackbar.Add(removed > 0 ? $"已清理 {removed} 条运行记录。" : "没有可清理的运行记录。", Severity.Info);
+    }
+
+    private async Task OpenSettingsAsync()
+    {
+        _isSettingsDrawerOpen = true;
+        if (_accountsLoaded || _accountsLoading)
+            return;
+
+        _accountsLoading = true;
+        try
+        {
+            _accounts = await GetAvailableAccountsAsync();
+            _accountsLoaded = true;
+        }
+        catch
+        {
+            _accounts = [];
+        }
+        finally
+        {
+            _accountsLoading = false;
+        }
+    }
+
+    private void OpenRunLog()
+    {
+        _currentRun ??= LatestRun(_editing.Id);
+        _isRunLogDrawerOpen = true;
+    }
+
+    private void OpenRunLog(string workflowId)
+    {
+        _currentRun = LatestRun(workflowId);
+        _isRunLogDrawerOpen = true;
+    }
+
+    private Task SetWorkflowNameAsync(string value)
+    {
+        _editing.Name = value;
+        ScheduleAutoSave();
+        return Task.CompletedTask;
+    }
+
+    private Task SetTimeWindowAsync(string value)
+    {
+        _editing.TimeWindow = value;
+        ScheduleAutoSave();
+        return Task.CompletedTask;
+    }
+
+    private Task SetMaxRuntimeAsync(int value)
+    {
+        _editing.MaxRuntimeMinutes = value;
+        ScheduleAutoSave();
+        return Task.CompletedTask;
+    }
+
+    private Task SetWorkflowEnabledAsync(bool value)
+    {
+        _editing.IsEnabled = value;
+        ScheduleAutoSave();
+        return Task.CompletedTask;
+    }
+
+    private Task SetUseAllAccountsAsync(bool value)
+    {
+        _useAllAccounts = value;
+        if (value)
+        {
+            _editing.AccountIds = [];
+        }
+        else if (_editing.AccountIds.Count == 0 && _accounts.Count > 0)
+        {
+            _editing.AccountIds = [AccountKey(_accounts[0])];
+        }
+        ScheduleAutoSave();
+        return Task.CompletedTask;
+    }
+
+    private Task ToggleAccountAsync(ContentAutomationAccount account, bool selected)
+    {
+        var ids = _editing.AccountIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var key = AccountKey(account);
+        if (selected)
+            ids.Add(key);
+        else
+            ids.Remove(key);
+        _editing.AccountIds = ids.ToList();
+        ScheduleAutoSave();
+        return Task.CompletedTask;
+    }
+
+    private bool IsAccountSelected(ContentAutomationAccount account) =>
+        _editing.AccountIds.Contains(AccountKey(account), StringComparer.OrdinalIgnoreCase);
+
+    private MaintenanceWorkflowRunRecord? LatestRun(string workflowId) =>
+        _runs.Where(run => run.WorkflowId == workflowId).OrderByDescending(run => run.StartedAt).FirstOrDefault();
+
+    private bool IsWorkflowRunning(string workflowId) =>
+        _runningWorkflowIds.Contains(workflowId)
+        || _runs.Any(run => run.WorkflowId == workflowId && IsActiveRun(run.Status));
+
+    private static bool IsActiveRun(MaintenanceWorkflowRunStatus status) =>
+        status is MaintenanceWorkflowRunStatus.Running or MaintenanceWorkflowRunStatus.WaitingManualConfirm;
+
+    private string NextWorkflowName()
+    {
+        var index = 1;
+        while (_workflows.Any(item => item.Name == $"养号流程 {index}")) index++;
+        return $"养号流程 {index}";
+    }
+
+    private static string WorkflowSummary(MaintenanceWorkflowDefinition workflow)
+    {
+        if (workflow.Steps.Count == 0)
+            return "尚未添加养号动作";
+        return string.Join(" · ", workflow.Steps.Take(3).Select(step => step.DisplayName));
+    }
+
+    private string AccountSummary(MaintenanceWorkflowDefinition workflow)
+    {
+        var count = AutomationAccountSelection.ResolveWorkflowParticipants(_accounts, workflow.AccountIds).Count;
+        if (count == 0)
+            return "暂无可用账号";
+        return workflow.AccountIds.Count == 0 ? $"全部（{count} 个）" : $"{count} 个";
+    }
+
+    private bool HasRunnableAccounts(MaintenanceWorkflowDefinition workflow) =>
+        AutomationAccountSelection.ResolveWorkflowParticipants(_accounts, workflow.AccountIds).Count > 0;
+
+    private async Task<List<ContentAutomationAccount>> GetAvailableAccountsAsync()
+    {
+        try
+        {
+            return (await AutomationBridge.GetAccountsAsync())
+                .Where(AutomationAccountSelection.IsAvailable)
+                .OrderBy(AccountDisplayName)
+                .ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static string RunSummary(MaintenanceWorkflowRunRecord? run)
+    {
+        if (run is null) return "尚未运行";
+        return run.Status switch
+        {
+            MaintenanceWorkflowRunStatus.Completed => "已完成",
+            MaintenanceWorkflowRunStatus.Running => "运行中",
+            MaintenanceWorkflowRunStatus.Cancelled => "已停止",
+            MaintenanceWorkflowRunStatus.Failed => "未完成",
+            MaintenanceWorkflowRunStatus.Skipped => "已跳过",
+            _ => "等待运行"
+        };
+    }
+
+    private static string UpdatedText(DateTimeOffset updatedAt)
+    {
+        if (updatedAt == default) return "刚刚创建";
+        var elapsed = DateTimeOffset.Now - updatedAt;
+        if (elapsed.TotalMinutes < 1) return "刚刚更新";
+        if (elapsed.TotalHours < 1) return $"{Math.Max(1, (int)elapsed.TotalMinutes)} 分钟前更新";
+        if (elapsed.TotalDays < 1) return $"{Math.Max(1, (int)elapsed.TotalHours)} 小时前更新";
+        return updatedAt.ToString("MM-dd HH:mm");
+    }
+
+    private static string StateClass(bool enabled) => enabled ? "is-enabled" : "is-disabled";
+
+    private static string NodeRunState(MaintenanceWorkflowStepStatus status) => status switch
+    {
+        MaintenanceWorkflowStepStatus.Running => "running",
+        MaintenanceWorkflowStepStatus.Success => "success",
+        MaintenanceWorkflowStepStatus.Failed => "failed",
+        _ => ""
+    };
+
+    private static string AccountKey(ContentAutomationAccount account) =>
+        !string.IsNullOrWhiteSpace(account.Uid) ? account.Uid : account.Id;
+
+    private static string AccountDisplayName(ContentAutomationAccount account) =>
+        !string.IsNullOrWhiteSpace(account.Nickname)
+            ? account.Nickname
+            : !string.IsNullOrWhiteSpace(account.Name) ? account.Name : "未命名账号";
+
+    private static string AccountInitial(ContentAutomationAccount account)
+    {
+        var name = AccountDisplayName(account);
+        return name.Length > 0 ? name[..1].ToUpperInvariant() : "B";
+    }
+
+    private static MaintenanceWorkflowDefinition CloneWorkflowShell(MaintenanceWorkflowDefinition workflow) => new()
+    {
+        SchemaVersion = workflow.SchemaVersion,
+        Id = workflow.Id,
+        Name = workflow.Name,
+        IsEnabled = workflow.IsEnabled,
+        AccountIds = workflow.AccountIds.ToList(),
+        TimeWindow = workflow.TimeWindow,
+        MaxRuntimeMinutes = workflow.MaxRuntimeMinutes,
+        DefaultStepIntervalSeconds = workflow.DefaultStepIntervalSeconds,
+        FailureStrategy = workflow.FailureStrategy,
+        ViewportX = workflow.ViewportX,
+        ViewportY = workflow.ViewportY,
+        ViewportZoom = workflow.ViewportZoom,
+        CreatedAt = workflow.CreatedAt,
+        UpdatedAt = workflow.UpdatedAt
+    };
+
+    private static MaintenanceWorkflowStep CloneStep(MaintenanceWorkflowStep step) => new()
+    {
+        Id = step.Id,
+        NodeType = step.NodeType,
+        DisplayName = step.DisplayName,
+        Group = step.Group,
+        Enabled = step.Enabled,
+        SortOrder = step.SortOrder,
+        Permission = step.Permission,
+        FailureStrategy = step.FailureStrategy,
+        RetryCount = step.RetryCount,
+        IntervalSeconds = step.IntervalSeconds,
+        MaxRuntimeSeconds = step.MaxRuntimeSeconds,
+        X = step.X,
+        Y = step.Y,
+        Parameters = new Dictionary<string, string>(step.Parameters)
+    };
+
+    private static MaintenanceWorkflowEdge CloneEdge(MaintenanceWorkflowEdge edge) => new()
+    {
+        Id = edge.Id,
+        SourceStepId = edge.SourceStepId,
+        TargetStepId = edge.TargetStepId,
+        SourceHandle = edge.SourceHandle,
+        TargetHandle = edge.TargetHandle,
+        Label = edge.Label
+    };
+
+    public void Dispose()
+    {
+        _saveDebounce?.Cancel();
+        _saveDebounce?.Dispose();
+        _saveLock.Dispose();
+    }
+}

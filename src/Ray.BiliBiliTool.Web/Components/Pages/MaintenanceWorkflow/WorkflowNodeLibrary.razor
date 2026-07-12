@@ -1,0 +1,144 @@
+@using Microsoft.AspNetCore.Components.Web
+@using Ray.BiliBiliTool.Application.Contracts.MaintenanceWorkflows
+
+<aside class="workflow-node-dock">
+    <div class="workflow-node-dock__head">
+        <div>
+            <span class="workflow-kicker">养号模块</span>
+            <h2>节点库</h2>
+        </div>
+        <span class="workflow-count">@FilteredNodes.Count()</span>
+    </div>
+
+    <MudTextField T="string"
+                  @bind-Value="_search"
+                  Placeholder="搜索节点"
+                  Immediate="true"
+                  Margin="Margin.Dense"
+                  Variant="Variant.Outlined"
+                  Adornment="Adornment.Start"
+                  AdornmentIcon="@Icons.Material.Filled.Search" />
+
+    <div class="workflow-group-strip" role="tablist" aria-label="节点分类">
+        <button type="button"
+                class="workflow-group-chip @(SelectedGroup == AllGroups ? "is-active" : "")"
+                @onclick="@(() => SelectedGroupChanged.InvokeAsync(AllGroups))">
+            全部
+        </button>
+        @foreach (var group in Groups)
+        {
+            <button type="button"
+                    class="workflow-group-chip @(SelectedGroup == group ? "is-active" : "")"
+                    @onclick="@(() => SelectedGroupChanged.InvokeAsync(group))">
+                @group
+            </button>
+        }
+    </div>
+
+    <div class="workflow-node-library">
+        @foreach (var node in FilteredNodes)
+        {
+            <button type="button"
+                    class="workflow-node-card"
+                    draggable="true"
+                    title="@node.Description"
+                    @ondragstart="@(() => NodeDragStarted.InvokeAsync(node.NodeType))"
+                    @ondragend="@(args => NodeDragEnded.InvokeAsync(args))"
+                    @onclick="@(() => AddNode.InvokeAsync(node))">
+                <span class="workflow-node-card__icon @IconClass(node)">
+                    <MudIcon Icon="@IconFor(node)" Size="Size.Small" />
+                </span>
+                <span class="workflow-node-card__text">
+                    <strong>@node.DisplayName</strong>
+                    <small>@node.Group</small>
+                </span>
+                @if (!string.IsNullOrWhiteSpace(node.Permission))
+                {
+                    <span class="workflow-node-card__badge">@PermissionText(node.Permission)</span>
+                }
+            </button>
+        }
+    </div>
+</aside>
+
+@code {
+    private const string AllGroups = "全部";
+    private string _search = "";
+
+    [Parameter]
+    public IReadOnlyList<MaintenanceWorkflowNodeDefinition> Nodes { get; set; } = [];
+
+    [Parameter]
+    public string SelectedGroup { get; set; } = AllGroups;
+
+    [Parameter]
+    public EventCallback<string> SelectedGroupChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<MaintenanceWorkflowNodeDefinition> AddNode { get; set; }
+
+    [Parameter]
+    public EventCallback<string> NodeDragStarted { get; set; }
+
+    [Parameter]
+    public EventCallback<DragEventArgs> NodeDragEnded { get; set; }
+
+    private IEnumerable<MaintenanceWorkflowNodeDefinition> VisibleNodes =>
+        Nodes.Where(node => node.IsExecutable || node.NodeType.StartsWith("control.", StringComparison.OrdinalIgnoreCase));
+
+    private IReadOnlyList<string> Groups => VisibleNodes
+        .Select(x => x.Group)
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .Distinct()
+        .OrderBy(x => x)
+        .ToList();
+
+    private IEnumerable<MaintenanceWorkflowNodeDefinition> FilteredNodes
+    {
+        get
+        {
+            var query = VisibleNodes;
+            if (SelectedGroup != AllGroups)
+                query = query.Where(x => x.Group == SelectedGroup);
+            if (!string.IsNullOrWhiteSpace(_search))
+                query = query.Where(x =>
+                    x.DisplayName.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                    || x.NodeType.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                    || x.Group.Contains(_search, StringComparison.OrdinalIgnoreCase));
+            return query;
+        }
+    }
+
+    private static string IconFor(MaintenanceWorkflowNodeDefinition node)
+    {
+        if (node.NodeType.StartsWith("control.", StringComparison.OrdinalIgnoreCase))
+            return Icons.Material.Filled.Tune;
+        if (node.NodeType.Contains("live", StringComparison.OrdinalIgnoreCase))
+            return Icons.Material.Filled.Sensors;
+        if (node.NodeType.Contains("vip", StringComparison.OrdinalIgnoreCase))
+            return Icons.Material.Filled.WorkspacePremium;
+        if (node.NodeType.Contains("manga", StringComparison.OrdinalIgnoreCase))
+            return Icons.Material.Filled.AutoStories;
+        if (node.NodeType.Contains("coin", StringComparison.OrdinalIgnoreCase)
+            || node.NodeType.Contains("charge", StringComparison.OrdinalIgnoreCase))
+            return Icons.Material.Filled.Paid;
+        return Icons.Material.Filled.PlaylistAddCheck;
+    }
+
+    private static string IconClass(MaintenanceWorkflowNodeDefinition node)
+    {
+        if (node.NodeType.StartsWith("control.", StringComparison.OrdinalIgnoreCase))
+            return "workflow-node-card__icon--control";
+        if (!string.IsNullOrWhiteSpace(node.Permission))
+            return "workflow-node-card__icon--gated";
+        return "workflow-node-card__icon--task";
+    }
+
+    private static string PermissionText(string permission) => permission switch
+    {
+        "big_vip" => "大会员",
+        "monthly_bcoin_coupon" => "B币券",
+        "purchase_required" => "付费",
+        _ => permission
+    };
+}

@@ -37,14 +37,14 @@ namespace BlazingQuartz.Core.History
             CancellationToken cancelToken = default
         )
         {
-            DateTime oldDate = DateTime.UtcNow.Date.AddDays(-(daysToKeep + 1));
+            DateTimeOffset oldDate = DateTimeOffset.UtcNow.Date.AddDays(-(daysToKeep + 1));
 
-            IEnumerable<object> parameters = new List<object> { oldDate };
-            return await _dbContext.Database.ExecuteSqlRawAsync(
-                _sqlProvider.DeleteLogsByDays,
-                parameters,
-                cancelToken
-            );
+            var expiredLogs = await _dbContext
+                .ExecutionLogs.Where(l => l.DateAddedUtc < oldDate)
+                .ToListAsync(cancelToken);
+
+            _dbContext.ExecutionLogs.RemoveRange(expiredLogs);
+            return await _dbContext.SaveChangesAsync(cancelToken);
         }
 
         public async Task SaveChangesAsync(CancellationToken cancelToken = default)

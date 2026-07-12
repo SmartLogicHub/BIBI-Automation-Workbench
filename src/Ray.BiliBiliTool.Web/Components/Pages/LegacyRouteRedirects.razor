@@ -1,0 +1,41 @@
+@page "/Admin"
+@page "/AutomationConfigAudit"
+@page "/DataManagement"
+@page "/login"
+@page "/ProductComment"
+@page "/TaskRecords"
+@page "/TemplateLibrary"
+@page "/Schedules"
+@page "/Configurations/ChargeTaskConfig"
+@page "/Configurations/DailyJobConfig"
+@page "/Configurations/LiveFansMedalTaskConfig"
+@page "/Configurations/LiveLotteryTaskConfig"
+@page "/Configurations/MangaPrivilegeTaskConfig"
+@page "/Configurations/MangaTaskConfig"
+@page "/Configurations/ProductCommentTaskConfig"
+@page "/Configurations/Silver2CoinTaskConfig"
+@page "/Configurations/UnfollowBatchedTaskConfig"
+@page "/Configurations/VipBigPointConfig"
+@page "/Configurations/VipPrivilegeConfig"
+@inject NavigationManager Navigation
+
+<PageTitle>正在打开</PageTitle>
+
+@code {
+    protected override void OnInitialized()
+    {
+        var path = Navigation.ToBaseRelativePath(Navigation.Uri)
+            .Split('?', '#')[0]
+            .Trim('/')
+            .ToLowerInvariant();
+        var target = path switch
+        {
+            "login" => "/accounts",
+            "productcomment" or "templatelibrary" or "configurations/productcommenttaskconfig" => "/comment-ops",
+            "taskrecords" => "/records",
+            "admin" or "automationconfigaudit" or "datamanagement" => "/settings",
+            _ => "/workflows"
+        };
+        Navigation.NavigateTo(target, replace: true);
+    }
+}

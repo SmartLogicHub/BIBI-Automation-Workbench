@@ -1,9 +1,10 @@
-﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using QRCoder;
 using Ray.BiliBiliTool.Agent;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Dtos;
@@ -30,6 +31,8 @@ public class LoginDomainService(
     IOptions<QingLongOptions> qingLongOptions
 ) : ILoginDomainService
 {
+    private static readonly SemaphoreSlim CookieFileGate = new(1, 1);
+
     public async Task<BiliCookie> LoginByQrCodeAsync(CancellationToken cancellationToken)
     {
         BiliCookie? cookieInfo = null;
@@ -147,84 +150,87 @@ public class LoginDomainService(
         CancellationToken cancellationToken
     )
     {
-        //读取json
-        var path = hostingEnvironment.ContentRootPath;
-        var indexOfBin = path.LastIndexOf("bin");
-        if (indexOfBin != -1)
+        await CookieFileGate.WaitAsync(cancellationToken);
+        try
         {
-            path = path[..indexOfBin];
+            var fileInfo = GetCookieFileInfo();
+            var path =
+                fileInfo.PhysicalPath
+                ?? throw new InvalidOperationException("无法确定本地账号会话文件位置");
+            logger.LogInformation("目标json地址：{path}", path);
+
+            var root = await ReadCookieStoreAsync(path, cancellationToken);
+            if (root["BiliBiliCookies"] is not JArray accounts)
+            {
+                accounts = [];
+                root["BiliBiliCookies"] = accounts;
+            }
+
+            ckInfo.CookieItemDictionary.TryGetValue("DedeUserID", out var userId);
+            userId ??= ckInfo.CookieStr;
+            var existing = accounts
+                .Where(token => token.Type == JTokenType.String)
+                .FirstOrDefault(token => CookieBelongsToUser(token.Value<string>() ?? "", userId));
+            if (existing is null)
+            {
+                accounts.Add(ckInfo.CookieStr);
+                logger.LogInformation("不存在该用户，新增cookie");
+            }
+            else
+            {
+                existing.Replace(new JValue(ckInfo.CookieStr));
+                logger.LogInformation("已存在该用户，更新cookie");
+            }
+
+            await WriteCookieStoreAtomicallyAsync(path, root, cancellationToken);
+            logger.LogInformation("账号会话保存成功");
         }
-        if (string.Equals(configuration["PlatformType"], "Web", StringComparison.OrdinalIgnoreCase))
+        finally
         {
-            path = Path.Combine(path, "config");
+            CookieFileGate.Release();
         }
-        var fileProvider = new PhysicalFileProvider(path);
-        IFileInfo fileInfo = fileProvider.GetFileInfo("cookies.json");
-        logger.LogInformation("目标json地址：{path}", fileInfo.PhysicalPath);
+    }
 
-        if (!fileInfo.Exists)
-        {
-            await using var stream = File.Create(fileInfo.PhysicalPath!);
-            await using var sw = new StreamWriter(stream);
-            await sw.WriteAsync($"{{{Environment.NewLine}}}");
-        }
-
-        string json;
-        await using (var stream = new FileStream(fileInfo.PhysicalPath!, FileMode.Open))
-        {
-            using var reader = new StreamReader(stream);
-            json = await reader.ReadToEndAsync();
-        }
-        var lines = json.Split(Environment.NewLine).ToList();
-
-        var indexOfCkConfigKey = lines.FindIndex(x =>
-            x.TrimStart().StartsWith("\"BiliBiliCookies\"")
-        );
-        if (indexOfCkConfigKey == -1)
-        {
-            logger.LogInformation("未配置过cookie，初始化并新增");
-
-            var indexOfInsert = lines.FindIndex(x => x.TrimStart().StartsWith("{"));
-            lines.InsertRange(
-                indexOfInsert + 1,
-                new List<string>()
-                {
-                    "  \"BiliBiliCookies\":[",
-                    $@"    ""{ckInfo.CookieStr}"",",
-                    "  ],",
-                }
-            );
-
-            await SaveJson(lines, fileInfo);
-            logger.LogInformation("新增成功！");
+    public async Task DeleteCookieFromJsonFileAsync(
+        string userId,
+        CancellationToken cancellationToken
+    )
+    {
+        if (string.IsNullOrWhiteSpace(userId))
             return;
-        }
 
-        ckInfo.CookieItemDictionary.TryGetValue("DedeUserID", out var userId);
-        userId ??= ckInfo.CookieStr;
-        var indexOfCkConfigEnd = lines.FindIndex(
-            indexOfCkConfigKey,
-            x => x.TrimStart().StartsWith("]")
-        );
-        var indexOfTargetCk = lines.FindIndex(
-            indexOfCkConfigKey,
-            indexOfCkConfigEnd - indexOfCkConfigKey,
-            x => x.Contains(userId) && !x.TrimStart().StartsWith("//")
-        );
-
-        if (indexOfTargetCk == -1)
+        await CookieFileGate.WaitAsync(cancellationToken);
+        try
         {
-            logger.LogInformation("不存在该用户，新增cookie");
-            lines.Insert(indexOfCkConfigEnd, $@"    ""{ckInfo.CookieStr}"",");
-            await SaveJson(lines, fileInfo);
-            logger.LogInformation("新增成功！");
-            return;
-        }
+            var fileInfo = GetCookieFileInfo();
+            if (!fileInfo.Exists || string.IsNullOrWhiteSpace(fileInfo.PhysicalPath))
+                return;
 
-        logger.LogInformation("已存在该用户，更新cookie");
-        lines[indexOfTargetCk] = $@"    ""{ckInfo.CookieStr}"",";
-        await SaveJson(lines, fileInfo);
-        logger.LogInformation("更新成功！");
+            var root = await ReadCookieStoreAsync(fileInfo.PhysicalPath, cancellationToken);
+            if (root["BiliBiliCookies"] is not JArray accounts)
+                return;
+
+            var matches = accounts
+                .Where(token => token.Type == JTokenType.String)
+                .Where(token => CookieBelongsToUser(token.Value<string>() ?? "", userId))
+                .ToList();
+            foreach (var match in matches)
+                match.Remove();
+
+            if (matches.Count > 0)
+            {
+                await WriteCookieStoreAtomicallyAsync(
+                    fileInfo.PhysicalPath,
+                    root,
+                    cancellationToken
+                );
+                logger.LogInformation("账号 {UserId} 的本地登录会话已删除", userId);
+            }
+        }
+        finally
+        {
+            CookieFileGate.Release();
+        }
     }
 
     public async Task<bool> SaveCookieToQinLongAsync(
@@ -394,12 +400,79 @@ public class LoginDomainService(
         return $"https://tool.lu/qrcode/basic.html?text={encode}";
     }
 
-    private async Task SaveJson(List<string> lines, IFileInfo fileInfo)
+    private static async Task<JObject> ReadCookieStoreAsync(
+        string path,
+        CancellationToken cancellationToken
+    )
     {
-        var newJson = string.Join(Environment.NewLine, lines);
+        if (!File.Exists(path))
+            return new JObject();
 
-        await using var sw = new StreamWriter(fileInfo.PhysicalPath!);
-        await sw.WriteAsync(newJson);
+        var json = await File.ReadAllTextAsync(path, cancellationToken);
+        if (string.IsNullOrWhiteSpace(json))
+            return new JObject();
+
+        try
+        {
+            return JObject.Parse(json);
+        }
+        catch (JsonReaderException ex)
+        {
+            throw new InvalidDataException("本地账号会话文件格式无效，请先恢复或删除该文件。", ex);
+        }
+    }
+
+    private static async Task WriteCookieStoreAtomicallyAsync(
+        string path,
+        JObject root,
+        CancellationToken cancellationToken
+    )
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
+
+        var temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await File.WriteAllTextAsync(
+                temporaryPath,
+                root.ToString(Formatting.Indented),
+                cancellationToken
+            );
+            File.Move(temporaryPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
+    }
+
+    private IFileInfo GetCookieFileInfo()
+    {
+        var path = hostingEnvironment.ContentRootPath;
+        var indexOfBin = path.LastIndexOf("bin", StringComparison.OrdinalIgnoreCase);
+        if (indexOfBin != -1)
+            path = path[..indexOfBin];
+        if (string.Equals(configuration["PlatformType"], "Web", StringComparison.OrdinalIgnoreCase))
+            path = Path.Combine(path, "data");
+
+        Directory.CreateDirectory(path);
+        var fileProvider = new PhysicalFileProvider(path);
+        return fileProvider.GetFileInfo("cookies.json");
+    }
+
+    private static bool CookieBelongsToUser(string cookie, string userId)
+    {
+        return cookie
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(item => item.Split('=', 2))
+            .Any(parts =>
+                parts.Length == 2
+                && parts[0].Equals("DedeUserID", StringComparison.OrdinalIgnoreCase)
+                && parts[1].Equals(userId, StringComparison.OrdinalIgnoreCase)
+            );
     }
 
     #region qinglong

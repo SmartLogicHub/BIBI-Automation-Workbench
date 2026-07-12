@@ -1,0 +1,42 @@
+.runtime-state {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--bibi-muted);
+    font-size: 13px;
+}
+
+.runtime-state__icon {
+    flex: 0 0 auto;
+}
+
+.runtime-state__icon--ready {
+    color: var(--bibi-success);
+}
+
+.runtime-state__icon--starting {
+    color: var(--bibi-info);
+}
+
+.runtime-state__icon--warning,
+.runtime-state__icon--stopped {
+    color: var(--bibi-warning);
+}
+
+.runtime-state__label {
+    color: var(--bibi-text);
+    font-weight: 650;
+}
+
+.runtime-state__detail {
+    padding-left: 8px;
+    border-left: 1px solid var(--bibi-border-strong);
+    color: var(--bibi-subtle);
+}
+
+@media (max-width: 560px) {
+    .runtime-state__detail {
+        display: none;
+    }
+}

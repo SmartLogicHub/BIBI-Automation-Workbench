@@ -1,0 +1,1305 @@
+@page "/CommentOps"
+@page "/comment-ops"
+@page "/ContentAutomation"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@using Ray.BiliBiliTool.Application.Contracts.ContentAutomation
+@using Ray.BiliBiliTool.Application.Contracts.Runtime
+@using Ray.BiliBiliTool.Web.Services
+@inject IContentAutomationBridge AutomationBridge
+@inject IContentAutomationStrategyService StrategyService
+@inject ISystemRuntimeStateStore RuntimeStateStore
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>评论引流</PageTitle>
+
+<section class="bibi-page comment-page">
+    <header class="bibi-page-header comment-header">
+        <div>
+            <p class="bibi-eyebrow">自动评论</p>
+            <h1 class="bibi-title">评论引流</h1>
+            <p class="bibi-subtitle">从发现视频到生成草稿、发布和记录，全程在一个运行中心完成。</p>
+        </div>
+        <div class="comment-header__actions">
+            <MudTooltip Text="刷新运行数据">
+                <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Disabled="@_isBusy" OnClick="LoadOperationalDataAsync" aria-label="刷新运行数据" />
+            </MudTooltip>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Default"
+                       StartIcon="@Icons.Material.Outlined.Tune"
+                       aria-label="打开运行策略"
+                       OnClick="@(() => _isStrategyDrawerOpen = true)">
+                运行策略
+            </MudButton>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <div class="comment-notice @MessageClass">
+            <MudIcon Icon="@MessageIcon" Size="Size.Small" />
+            <span>@_message</span>
+        </div>
+    }
+
+    <section class="comment-runbar">
+        <div class="comment-runbar__status">
+            <span class="comment-runbar__icon @RunStatusClass"><MudIcon Icon="@RunStatusIcon" /></span>
+            <div>
+                <strong>@RunStatusTitle</strong>
+                <span>@RunStatusDescription</span>
+            </div>
+        </div>
+        <div class="comment-runbar__progress">
+            @if (HasActiveJob)
+            {
+                <MudProgressLinear Value="@Math.Clamp(_currentJob.Progress, 0, 100)" Color="Color.Secondary" Rounded="true" />
+                <span>@Math.Clamp(_currentJob.Progress, 0, 100)%</span>
+            }
+            else
+            {
+                <span>@ParticipatingAccountCount 个可用账号参与 · 本次最多 @_workflow.MaxCount 条</span>
+            }
+        </div>
+        @if (HasActiveJob)
+        {
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Error"
+                       StartIcon="@Icons.Material.Filled.Stop"
+                       Class="comment-primary-action"
+                       aria-label="停止自动运行"
+                       OnClick="StopJobAsync">
+                停止运行
+            </MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.PlayArrow"
+                       Class="comment-primary-action"
+                       aria-label="启动自动运行"
+                       Disabled="@(!CanStart)"
+                       OnClick="StartIntegratedWorkflowAsync">
+                启动自动运行
+            </MudButton>
+        }
+    </section>
+
+    <div class="comment-funnel">
+        <section class="comment-column">
+            <div class="comment-column__header">
+                <div>
+                    <span class="comment-column__step">01</span>
+                    <div>
+                        <h2>发现池</h2>
+                        <p>@PendingVideos.Count 条等待处理</p>
+                    </div>
+                </div>
+                @if (PendingVideos.Count > 0)
+                {
+                    <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                             Size="Size.Small"
+                             AnchorOrigin="Origin.BottomRight"
+                             TransformOrigin="Origin.TopRight"
+                             AriaLabel="发现池操作">
+                        <MudMenuItem Icon="@Icons.Material.Outlined.DeleteSweep"
+                                     IconColor="Color.Error"
+                                     Disabled="@_isBusy"
+                                     OnClick="ClearVideosAsync">清空发现池</MudMenuItem>
+                    </MudMenu>
+                }
+            </div>
+            <div class="comment-column__body">
+                @if (PendingVideos.Count == 0)
+                {
+                    <div class="comment-empty">
+                        <MudIcon Icon="@Icons.Material.Outlined.VideoLibrary" />
+                        <strong>暂无待处理视频</strong>
+                        <span>运行后会按关键词持续发现视频。</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="video-list">
+                        @foreach (var video in PendingVideos.Take(30))
+                        {
+                            <article class="video-item">
+                                <span class="video-item__thumb"><MudIcon Icon="@Icons.Material.Filled.PlayArrow" /></span>
+                                <div>
+                                    <strong>@VideoTitle(video)</strong>
+                                    <p>
+                                        @if (!string.IsNullOrWhiteSpace(video.Keyword))
+                                        {
+                                            <span>@video.Keyword</span>
+                                        }
+                                        <span>@video.Bvid</span>
+                                    </p>
+                                </div>
+                                <span class="bibi-status-chip">待匹配</span>
+                                <MudTooltip Text="移出发现池">
+                                    <MudIconButton Icon="@Icons.Material.Outlined.Close"
+                                                   Size="Size.Small"
+                                                   Disabled="@_isBusy"
+                                                   OnClick="@(() => DeleteVideoAsync(video))"
+                                                   aria-label="移出发现池" />
+                                </MudTooltip>
+                            </article>
+                        }
+                    </div>
+                }
+            </div>
+        </section>
+
+        <section class="comment-column comment-column--middle">
+            <div class="comment-column__header">
+                <div>
+                    <span class="comment-column__step">02</span>
+                    <div>
+                        <h2>待发布草稿</h2>
+                        <p>@Drafts.Count 条候选评论</p>
+                    </div>
+                </div>
+                @if (_commentMode != "template" && PendingVideos.Count > 0)
+                {
+                    <MudTooltip Text="生成一条预览">
+                        <MudIconButton Icon="@Icons.Material.Outlined.AutoAwesome"
+                                       Disabled="@_isBusy"
+                                       OnClick="GenerateAiPreviewAsync"
+                                       aria-label="生成一条预览" />
+                    </MudTooltip>
+                }
+            </div>
+            <div class="comment-column__body comment-column__body--split">
+                <div class="draft-list">
+                    @if (Drafts.Count == 0)
+                    {
+                        <div class="comment-empty comment-empty--draft">
+                            <MudIcon Icon="@Icons.Material.Outlined.RateReview" />
+                            <strong>还没有可用草稿</strong>
+                            <span>@DraftEmptyMessage</span>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var draft in Drafts.Take(16))
+                        {
+                            <article class="draft-item">
+                                <div class="draft-item__head">
+                                    <div class="draft-item__video">@draft.Video</div>
+                                    <MudTooltip Text="放弃草稿">
+                                        <MudIconButton Icon="@Icons.Material.Outlined.DeleteOutline"
+                                                       Size="Size.Small"
+                                                       Disabled="@_isBusy"
+                                                       OnClick="@(() => DeleteDraftAsync(draft))"
+                                                       aria-label="放弃草稿" />
+                                    </MudTooltip>
+                                </div>
+                                <p>@draft.Comment</p>
+                                <span>@draft.Source</span>
+                            </article>
+                        }
+                    }
+                </div>
+
+                <div class="event-timeline">
+                    <div class="event-timeline__title">
+                        <h3>运行动态</h3>
+                        <div>
+                            <span>@_jobEvents.Count 条</span>
+                            @if (_jobEvents.Count > 0)
+                            {
+                                <MudTooltip Text="清空当前动态">
+                                    <MudIconButton Icon="@Icons.Material.Outlined.ClearAll"
+                                                   Size="Size.Small"
+                                                   OnClick="ClearJobEvents"
+                                                   aria-label="清空当前动态" />
+                                </MudTooltip>
+                            }
+                        </div>
+                    </div>
+                    @if (_jobEvents.Count == 0)
+                    {
+                        <div class="event-empty">启动任务后，这里会显示发现、生成和发布进度。</div>
+                    }
+                    else
+                    {
+                        @foreach (var item in _jobEvents.TakeLast(12).Reverse())
+                        {
+                            <div class="event-item">
+                                <span class="event-item__dot @EventClass(item)"></span>
+                                <div>
+                                    <strong>@EventTitle(item)</strong>
+                                    <p>@EventMessage(item)</p>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="comment-column">
+            <div class="comment-column__header">
+                <div>
+                    <span class="comment-column__step">03</span>
+                    <div>
+                        <h2>发布凭证</h2>
+                        <p>@LedgerSummaryText</p>
+                    </div>
+                </div>
+                <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                         Size="Size.Small"
+                         AnchorOrigin="Origin.BottomRight"
+                         TransformOrigin="Origin.TopRight"
+                         AriaLabel="发布凭证操作">
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Download" Disabled="@(_ledger.Count == 0 || _isBusy)" OnClick="ExportLedgerAsync">导出凭证</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.DeleteSweep" IconColor="Color.Error" Disabled="@(_ledger.Count == 0 || _isBusy)" OnClick="ClearLedgerAsync">清空凭证</MudMenuItem>
+                </MudMenu>
+            </div>
+            <div class="comment-column__body">
+                @if (_ledger.Count == 0)
+                {
+                    <div class="comment-empty">
+                        <MudIcon Icon="@Icons.Material.Outlined.ReceiptLong" />
+                        <strong>还没有发布凭证</strong>
+                        <span>评论提交后，这里会显示平台确认结果。</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="ledger-list">
+                        @foreach (var item in _ledger.OrderByDescending(item => ParseTime(item.CreatedAt)).Take(40))
+                        {
+                            <article class="ledger-item">
+                                <div class="ledger-item__top">
+                                    <strong>@(string.IsNullOrWhiteSpace(item.AccountName) ? "未知账号" : item.AccountName)</strong>
+                                    <div class="ledger-item__top-actions">
+                                        <time>@FormatTime(EvidenceTime(item))</time>
+                                        <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                                                 Size="Size.Small"
+                                                 AnchorOrigin="Origin.BottomRight"
+                                                 TransformOrigin="Origin.TopRight"
+                                                 AriaLabel="发布凭证操作">
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.OpenInNew"
+                                                         Href="@VideoUrl(item)"
+                                                         Target="_blank">打开视频</MudMenuItem>
+                                            @if (!string.IsNullOrWhiteSpace(item.CommentUrl))
+                                            {
+                                                <MudMenuItem Icon="@Icons.Material.Outlined.Forum"
+                                                             Href="@item.CommentUrl"
+                                                             Target="_blank">打开评论区</MudMenuItem>
+                                            }
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.DeleteOutline"
+                                                         IconColor="Color.Error"
+                                                         Disabled="@_isBusy"
+                                                         OnClick="@(() => DeleteLedgerRecordAsync(item))">删除本地记录</MudMenuItem>
+                                        </MudMenu>
+                                    </div>
+                                </div>
+                                <p>@(string.IsNullOrWhiteSpace(item.CommentText) ? "未生成评论内容" : item.CommentText)</p>
+                                <div class="ledger-item__meta">
+                                    <a href="@VideoUrl(item)" target="_blank" rel="noopener noreferrer">
+                                        @(string.IsNullOrWhiteSpace(item.VideoTitle) ? item.Bvid : item.VideoTitle)
+                                    </a>
+                                    <span class="bibi-status-chip @LedgerStatusClass(item)">@LedgerStatusText(item)</span>
+                                </div>
+                                <div class="ledger-proof @LedgerProofClass(item)">
+                                    <MudIcon Icon="@LedgerProofIcon(item)" Size="Size.Small" />
+                                    <div>
+                                        <strong>@LedgerProofTitle(item)</strong>
+                                        <span>@LedgerProofDescription(item)</span>
+                                        @if (!string.IsNullOrWhiteSpace(item.PlatformCommentId))
+                                        {
+                                            <small>评论编号 @item.PlatformCommentId</small>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(item.CommentUrl))
+                                    {
+                                        <a href="@item.CommentUrl" target="_blank" rel="noopener noreferrer" aria-label="打开评论区">
+                                            <MudIcon Icon="@Icons.Material.Outlined.OpenInNew" Size="Size.Small" />
+                                        </a>
+                                    }
+                                </div>
+                            </article>
+                        }
+                    </div>
+                }
+            </div>
+        </section>
+    </div>
+
+    <MudDrawer @bind-Open="_isStrategyDrawerOpen"
+               Anchor="Anchor.End"
+               Variant="DrawerVariant.Temporary"
+               Width="min(460px, 100vw)"
+               Elevation="8"
+               Class="comment-strategy-drawer">
+        <div class="strategy-head">
+            <div>
+                <span>评论引流</span>
+                <h2>运行策略</h2>
+            </div>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => _isStrategyDrawerOpen = false)" aria-label="关闭" />
+        </div>
+
+        <div class="strategy-body">
+            <section class="strategy-section">
+                <div class="strategy-section__title"><span>1</span><h3>视频来源</h3></div>
+                <MudTextField T="string" @bind-Value="_keywordsText" Label="监控关键词" Lines="4" Placeholder="每行一个关键词" Variant="Variant.Outlined" Immediate="true" />
+                <MudTextField T="string" @bind-Value="_importUrlsText" Label="指定视频（可选）" Lines="3" Placeholder="每行一个视频链接或 BV 号" Variant="Variant.Outlined" Immediate="true" Class="mt-3" />
+            </section>
+
+            <section class="strategy-section">
+                <div class="strategy-section__title"><span>2</span><h3>评论生成</h3></div>
+                <MudSelect T="string" Value="@_commentMode" ValueChanged="ChangeCommentMode" Label="生成方式" Variant="Variant.Outlined">
+                    <MudSelectItem Value="@("template")">评论词库</MudSelectItem>
+                    <MudSelectItem Value="@("deepseek")">DeepSeek</MudSelectItem>
+                    <MudSelectItem Value="@("qwen")">通义千问</MudSelectItem>
+                </MudSelect>
+                @if (_commentMode != "template")
+                {
+                    <MudTextField T="string" @bind-Value="_workflow.Rules" Label="生成规则" Lines="4" Placeholder="例如：自然口吻，不超过 30 字，不使用夸张营销语" Variant="Variant.Outlined" Class="mt-3" />
+                }
+                <MudSelect T="string" @bind-Value="_workflow.LibraryId" Label="@LibrarySelectLabel" Variant="Variant.Outlined" Class="mt-3" Clearable="@(_commentMode != "template")">
+                    @foreach (var library in _libraries.Where(item => item.Enabled && item.TemplateCount > 0))
+                    {
+                        <MudSelectItem Value="@library.Id">@library.Name（@library.TemplateCount 条）</MudSelectItem>
+                    }
+                </MudSelect>
+                @if (_commentMode != "template")
+                {
+                    <a class="strategy-settings-link" href="/settings"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />在设置中管理 AI 模型</a>
+                }
+
+                <div class="library-manager">
+                    <div class="library-manager__head">
+                        <strong>评论词库</strong>
+                        <div>
+                            <MudTooltip Text="新建词库"><MudIconButton Icon="@Icons.Material.Outlined.Add" Size="Size.Small" OnClick="OpenNewLibrary" aria-label="新建词库" /></MudTooltip>
+                            @if (_isStrategyDrawerOpen)
+                            {
+                                <label class="bibi-file-picker" title="导入词库文件夹">
+                                    <MudIcon Icon="@Icons.Material.Outlined.FolderOpen" Size="Size.Small" />
+                                    <span>导入</span>
+                                    <InputFile OnChange="ImportLibraryFilesAsync" AdditionalAttributes="_directoryInputAttributes" />
+                                </label>
+                            }
+                        </div>
+                    </div>
+                    @if (_libraries.Count == 0)
+                    {
+                        <p class="library-manager__empty">暂无词库，可新建或选择文件夹导入。</p>
+                    }
+                    else
+                    {
+                        @foreach (var library in _libraries)
+                        {
+                            <div class="library-row">
+                                <div><strong>@library.Name</strong><span>@library.TemplateCount 条</span></div>
+                                <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => OpenEditLibrary(library))" aria-label="编辑词库" />
+                                <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteLibraryAsync(library))" aria-label="删除词库" />
+                            </div>
+                        }
+                    }
+                </div>
+            </section>
+
+            <section class="strategy-section">
+                <div class="strategy-section__title"><span>3</span><h3>参与账号</h3></div>
+                <MudSelect T="string"
+                           MultiSelection="true"
+                           SelectedValues="@_selectedAccountIds"
+                           SelectedValuesChanged="OnAccountsSelected"
+                           MultiSelectionTextFunc="FormatSelectedAccountNames"
+                           Label="选择参与账号"
+                           Variant="Variant.Outlined">
+                    @foreach (var account in _accounts.Where(account => account.Enabled))
+                    {
+                        <MudSelectItem Value="@account.Id">@AccountOptionLabel(account)</MudSelectItem>
+                    }
+                </MudSelect>
+            </section>
+
+            <section class="strategy-section">
+                <div class="strategy-section__title"><span>4</span><h3>安全限制</h3></div>
+                <div class="strategy-number-grid">
+                    <MudNumericField T="int" @bind-Value="_workflow.Limit" Label="每轮最多发现" Min="1" Max="50" Variant="Variant.Outlined" />
+                    <MudNumericField T="int" @bind-Value="_workflow.MaxCount" Label="本次最多发布" Min="1" Max="50" Variant="Variant.Outlined" />
+                    <MudNumericField T="int" @bind-Value="_workflow.DurationMinutes" Label="单次运行（分钟）" Min="1" Max="1440" Variant="Variant.Outlined" />
+                </div>
+                <div class="strategy-timing-list">
+                    <div class="strategy-timing-row">
+                        <strong>账号切换等待</strong>
+                        <div class="strategy-timing-controls">
+                            <MudNumericField T="decimal" @bind-Value="_accountIntervalMinValue" Label="最少" Min="@DurationInputMin(_accountIntervalUnit)" Max="@DurationInputMax(_accountIntervalUnit)" Variant="Variant.Outlined" />
+                            <MudNumericField T="decimal" @bind-Value="_accountIntervalMaxValue" Label="最多" Min="@DurationInputMin(_accountIntervalUnit)" Max="@DurationInputMax(_accountIntervalUnit)" Error="@(_accountIntervalMaxValue < _accountIntervalMinValue)" ErrorText="最多不能小于最少" Variant="Variant.Outlined" />
+                            <MudSelect T="string" Value="@_accountIntervalUnit" ValueChanged="ChangeAccountIntervalUnit" Label="单位" Variant="Variant.Outlined">
+                                <MudSelectItem Value="@("seconds")">秒</MudSelectItem>
+                                <MudSelectItem Value="@("minutes")">分钟</MudSelectItem>
+                            </MudSelect>
+                        </div>
+                    </div>
+                    <div class="strategy-timing-row">
+                        <strong>同账号再次发布冷却</strong>
+                        <div class="strategy-timing-controls">
+                            <MudNumericField T="decimal" @bind-Value="_sameAccountCooldownMinValue" Label="最少" Min="@DurationInputMin(_sameAccountCooldownUnit)" Max="@DurationInputMax(_sameAccountCooldownUnit)" Variant="Variant.Outlined" />
+                            <MudNumericField T="decimal" @bind-Value="_sameAccountCooldownMaxValue" Label="最多" Min="@DurationInputMin(_sameAccountCooldownUnit)" Max="@DurationInputMax(_sameAccountCooldownUnit)" Error="@(_sameAccountCooldownMaxValue < _sameAccountCooldownMinValue)" ErrorText="最多不能小于最少" Variant="Variant.Outlined" />
+                            <MudSelect T="string" Value="@_sameAccountCooldownUnit" ValueChanged="ChangeSameAccountCooldownUnit" Label="单位" Variant="Variant.Outlined">
+                                <MudSelectItem Value="@("seconds")">秒</MudSelectItem>
+                                <MudSelectItem Value="@("minutes")">分钟</MudSelectItem>
+                            </MudSelect>
+                        </div>
+                    </div>
+                    <div class="strategy-timing-row">
+                        <strong>重新发现间隔</strong>
+                        <div class="strategy-timing-controls strategy-timing-controls--single">
+                            <MudNumericField T="decimal" @bind-Value="_cycleIntervalValue" Label="间隔" Min="@DurationInputMin(_cycleIntervalUnit)" Max="@DurationInputMax(_cycleIntervalUnit)" Variant="Variant.Outlined" />
+                            <MudSelect T="string" Value="@_cycleIntervalUnit" ValueChanged="ChangeCycleIntervalUnit" Label="单位" Variant="Variant.Outlined">
+                                <MudSelectItem Value="@("seconds")">秒</MudSelectItem>
+                                <MudSelectItem Value="@("minutes")">分钟</MudSelectItem>
+                            </MudSelect>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <div class="strategy-footer">
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" Disabled="@_isBusy" OnClick="@(() => SaveStrategyAsync(false))">保存策略</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PlayArrow" aria-label="保存策略并运行" Disabled="@(!CanStart)" OnClick="@(() => SaveStrategyAsync(true))">保存并运行</MudButton>
+        </div>
+    </MudDrawer>
+
+    <MudDrawer @bind-Open="_isLibraryDrawerOpen"
+               Anchor="Anchor.End"
+               Variant="DrawerVariant.Temporary"
+               Width="min(400px, 100vw)"
+               Elevation="12"
+               Class="library-edit-drawer">
+        <div class="strategy-head">
+            <div><span>评论词库</span><h2>@(string.IsNullOrWhiteSpace(_editingLibraryId) ? "新建词库" : "编辑词库")</h2></div>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => _isLibraryDrawerOpen = false)" aria-label="关闭" />
+        </div>
+        <div class="strategy-body">
+            <MudTextField T="string" @bind-Value="_editingLibraryName" Label="词库名称" Variant="Variant.Outlined" />
+            <MudTextField T="string" @bind-Value="_editingLibraryContent" Label="评论内容" Lines="14" Placeholder="每行一条评论" Variant="Variant.Outlined" Class="mt-3" />
+        </div>
+        <div class="strategy-footer">
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => _isLibraryDrawerOpen = false)">取消</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_isBusy" OnClick="SaveLibraryAsync">保存词库</MudButton>
+        </div>
+    </MudDrawer>
+</section>
+
+@code {
+    private SystemRuntimeState _runtime = new();
+    private bool _isBusy;
+    private bool _isStrategyDrawerOpen;
+    private bool _isLibraryDrawerOpen;
+    private string _message = "";
+    private Severity _messageSeverity = Severity.Info;
+    private string _commentMode = "template";
+    private string _keywordsText = "";
+    private string _importUrlsText = "";
+    private string _aiPreview = "";
+    private string _activeJobId = "";
+    private string _editingLibraryId = "";
+    private string _editingLibraryName = "";
+    private string _editingLibraryContent = "";
+    private decimal _accountIntervalMinValue = 8;
+    private decimal _accountIntervalMaxValue = 15;
+    private string _accountIntervalUnit = "minutes";
+    private decimal _sameAccountCooldownMinValue = 20;
+    private decimal _sameAccountCooldownMaxValue = 40;
+    private string _sameAccountCooldownUnit = "minutes";
+    private decimal _cycleIntervalValue = 30;
+    private string _cycleIntervalUnit = "minutes";
+    private List<ContentAutomationAccount> _accounts = [];
+    private List<ContentAutomationVideo> _videos = [];
+    private List<ContentAutomationLedgerRecord> _ledger = [];
+    private List<ContentAutomationLibrary> _libraries = [];
+    private List<ContentAutomationJobEvent> _jobEvents = [];
+    private HashSet<string> _selectedAccountIds = [];
+    private ContentAutomationJobStatus _currentJob = new();
+    private CancellationTokenSource? _pollingCts;
+    private readonly IDictionary<string, object> _directoryInputAttributes = new Dictionary<string, object>
+    {
+        ["webkitdirectory"] = "",
+        ["directory"] = "",
+        ["multiple"] = "multiple",
+        ["accept"] = ".txt,text/plain",
+        ["class"] = "bibi-file-picker__input"
+    };
+    private ContentAutomationWorkflowRequest _workflow = new()
+    {
+        DryRun = false,
+        Year = DateTime.Now.Year.ToString(),
+        Limit = 10,
+        MaxCount = 5,
+        DurationMinutes = 60,
+        CycleIntervalMinutes = 30,
+        CycleIntervalSeconds = 1800,
+        AccountIntervalMinSeconds = 480,
+        AccountIntervalMaxSeconds = 900,
+        SameAccountCooldownMinSeconds = 1200,
+        SameAccountCooldownMaxSeconds = 2400
+    };
+
+    private List<ContentAutomationVideo> PendingVideos => _videos.Where(video => IsStatus(video.Status, "pending")).ToList();
+    private int VerifiedLedgerCount => _ledger.Count(HasPlatformProof);
+    private int PendingLedgerCount => _ledger.Count(IsPendingConfirmation);
+    private string LedgerSummaryText => PendingLedgerCount > 0
+        ? $"{VerifiedLedgerCount} 条已确认 · {PendingLedgerCount} 条待核验"
+        : $"{VerifiedLedgerCount} 条已确认";
+    private bool HasActiveJob => !string.IsNullOrWhiteSpace(_activeJobId) && !IsTerminal(_currentJob.Status);
+    private bool HasSource => PendingVideos.Count > 0 || Lines(_keywordsText).Count > 0 || Lines(_importUrlsText).Count > 0;
+    private bool HasCommentSource => _commentMode != "template" || SelectedLibrary is { TemplateCount: > 0 };
+    private ContentAutomationLibrary? SelectedLibrary => _libraries.FirstOrDefault(item => item.Id == _workflow.LibraryId);
+    private IReadOnlyList<ContentAutomationAccount> ParticipatingAccounts =>
+        AutomationAccountSelection.ResolveSelected(_accounts, _selectedAccountIds);
+    private int ParticipatingAccountCount => ParticipatingAccounts.Count;
+    private bool CanStart => _runtime.IsReady && !_isBusy && !HasActiveJob && HasSource && HasCommentSource && ParticipatingAccountCount > 0 && TimingValuesValid;
+    private bool TimingValuesValid =>
+        _accountIntervalMinValue > 0
+        && _accountIntervalMaxValue >= _accountIntervalMinValue
+        && _sameAccountCooldownMinValue > 0
+        && _sameAccountCooldownMaxValue >= _sameAccountCooldownMinValue
+        && _cycleIntervalValue > 0;
+    private string LibrarySelectLabel => _commentMode == "template" ? "评论词库" : "失败时回退词库（可选）";
+    private string DraftEmptyMessage => !HasCommentSource ? "先在运行策略中选择评论词库。" : PendingVideos.Count == 0 ? "发现视频后会自动生成候选草稿。" : "当前视频还没有匹配到评论。";
+
+    private List<DraftPreview> Drafts
+    {
+        get
+        {
+            if (_commentMode != "template")
+            {
+                var video = PendingVideos.FirstOrDefault();
+                return video is null || string.IsNullOrWhiteSpace(_aiPreview)
+                    ? []
+                    : [new DraftPreview(video.Id, VideoTitle(video), _aiPreview, _commentMode == "qwen" ? "通义千问" : "DeepSeek")];
+            }
+
+            var templates = SelectedLibrary?.Templates.Where(item => item.Enabled && !string.IsNullOrWhiteSpace(item.Text)).ToList() ?? [];
+            if (templates.Count == 0)
+                return [];
+            return PendingVideos.Take(20).Select((video, index) =>
+            {
+                var text = templates[index % templates.Count].Text
+                    .Replace("{title}", video.Title, StringComparison.OrdinalIgnoreCase)
+                    .Replace("{bvid}", video.Bvid, StringComparison.OrdinalIgnoreCase)
+                    .Replace("{keyword}", video.Keyword, StringComparison.OrdinalIgnoreCase);
+                return new DraftPreview(video.Id, VideoTitle(video), text, SelectedLibrary?.Name ?? "评论词库");
+            }).ToList();
+        }
+    }
+
+    private string RunStatusTitle => HasActiveJob
+        ? "自动运行中"
+        : !_runtime.IsReady
+            ? "运行服务需要处理"
+            : CanStart
+                ? "已准备好"
+                : _selectedAccountIds.Count == 0
+                    ? "请选择账号"
+                    : ParticipatingAccountCount == 0
+                        ? "账号需要登录"
+                        : "等待完善策略";
+    private string RunStatusDescription => HasActiveJob ? EventMessage(_jobEvents.LastOrDefault()) : !_runtime.IsReady ? "系统会在后台自动恢复，可在设置中查看状态。" : ReadinessDescription;
+    private string ReadinessDescription => _selectedAccountIds.Count == 0
+        ? "请选择参与账号。"
+        : ParticipatingAccountCount == 0
+            ? "所选账号当前不可用，请先在账号管理中完成登录。"
+            : !HasCommentSource
+                ? "请选择评论词库。"
+                : !HasSource
+                    ? "请填写关键词或指定视频。"
+                    : "可以启动自动运行。";
+    private string RunStatusIcon => HasActiveJob ? Icons.Material.Filled.Autorenew : CanStart ? Icons.Material.Filled.CheckCircle : Icons.Material.Outlined.Info;
+    private string RunStatusClass => HasActiveJob ? "comment-runbar__icon--running" : CanStart ? "comment-runbar__icon--ready" : "comment-runbar__icon--waiting";
+    private string MessageClass => _messageSeverity == Severity.Error ? "comment-notice--error" : _messageSeverity == Severity.Warning ? "comment-notice--warning" : "comment-notice--info";
+    private string MessageIcon => _messageSeverity == Severity.Error ? Icons.Material.Outlined.ErrorOutline : _messageSeverity == Severity.Warning ? Icons.Material.Outlined.WarningAmber : Icons.Material.Outlined.Info;
+
+    protected override Task OnInitializedAsync()
+    {
+        _runtime = RuntimeStateStore.Current;
+        RuntimeStateStore.Changed += OnRuntimeChanged;
+        _ = InvokeAsync(LoadAsync);
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            ApplyStrategy(await StrategyService.GetAsync());
+            await LoadOperationalDataAsync();
+        }
+        catch
+        {
+            SetMessage("部分评论数据暂时无法加载，后台会继续重试。", Severity.Warning);
+        }
+    }
+
+    private async Task LoadOperationalDataAsync()
+    {
+        if (!_runtime.IsReady || _isBusy)
+            return;
+        _isBusy = true;
+        try
+        {
+            var accountsTask = AutomationBridge.GetAccountsAsync();
+            var videosTask = AutomationBridge.GetVideosAsync();
+            var ledgerTask = AutomationBridge.GetLedgerAsync();
+            var librariesTask = AutomationBridge.GetLibrariesAsync();
+            await Task.WhenAll(accountsTask, videosTask, ledgerTask, librariesTask);
+            _accounts = (await accountsTask).ToList();
+            _videos = (await videosTask).ToList();
+            _ledger = (await ledgerTask).ToList();
+            _libraries = (await librariesTask).ToList();
+            _selectedAccountIds.RemoveWhere(id => _accounts.All(account => account.Id != id));
+            if (_selectedAccountIds.Count == 0)
+                _selectedAccountIds = _accounts.Where(AutomationAccountSelection.IsAvailable).Select(account => account.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (_commentMode == "template" && string.IsNullOrWhiteSpace(_workflow.LibraryId))
+                _workflow.LibraryId = _libraries.FirstOrDefault(item => item.Enabled && item.TemplateCount > 0)?.Id ?? "";
+        }
+        catch
+        {
+            SetMessage("评论运行数据暂时无法更新。", Severity.Warning);
+        }
+        finally
+        {
+            _isBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task SaveStrategyAsync(bool runAfterSave)
+    {
+        if (!TimingValuesValid)
+        {
+            SetMessage("请检查等待与冷却时间，最多不能小于最少。", Severity.Warning);
+            return;
+        }
+
+        ApplyTimingValuesToWorkflow();
+        _isBusy = true;
+        try
+        {
+            var saved = await StrategyService.SaveAsync(new ContentAutomationStrategy
+            {
+                CommentMode = _commentMode,
+                LibraryId = _workflow.LibraryId,
+                Keywords = Lines(_keywordsText),
+                AccountIds = _selectedAccountIds.ToList(),
+                Rules = _workflow.Rules,
+                Year = _workflow.Year,
+                SearchLimit = _workflow.Limit,
+                PublishLimit = _workflow.MaxCount,
+                DurationMinutes = _workflow.DurationMinutes,
+                CycleIntervalMinutes = _workflow.CycleIntervalMinutes,
+                CycleIntervalSeconds = _workflow.CycleIntervalSeconds,
+                AccountIntervalMinSeconds = _workflow.AccountIntervalMinSeconds,
+                AccountIntervalMaxSeconds = _workflow.AccountIntervalMaxSeconds,
+                SameAccountCooldownMinSeconds = _workflow.SameAccountCooldownMinSeconds,
+                SameAccountCooldownMaxSeconds = _workflow.SameAccountCooldownMaxSeconds
+            });
+            ApplyStrategy(saved);
+            _isStrategyDrawerOpen = false;
+            SetMessage("运行策略已保存。", Severity.Info);
+        }
+        catch
+        {
+            SetMessage("策略保存失败，请稍后重试。", Severity.Error);
+            return;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+
+        if (runAfterSave)
+            await StartIntegratedWorkflowAsync();
+    }
+
+    private async Task StartIntegratedWorkflowAsync()
+    {
+        if (!CanStart)
+        {
+            SetMessage(ReadinessDescription, Severity.Warning);
+            return;
+        }
+
+        _workflow.DryRun = false;
+        ApplyTimingValuesToWorkflow();
+        _workflow.CommentMode = _commentMode;
+        _workflow.Keywords = Lines(_keywordsText).Count > 0 ? Lines(_keywordsText) : ["manual-import"];
+        _workflow.AccountIds = ParticipatingAccounts.Select(account => account.Id).ToList();
+        _workflow.ManualUrls = Lines(_importUrlsText);
+        _isBusy = true;
+        try
+        {
+            var result = await AutomationBridge.StartIntegratedWorkflowAsync(_workflow);
+            if (!result.Success)
+            {
+                SetMessage("任务未能启动，请检查账号和策略。", Severity.Warning);
+                return;
+            }
+            _activeJobId = result.JobId;
+            _currentJob = new ContentAutomationJobStatus { JobId = result.JobId, Status = "started", Message = result.Message };
+            _jobEvents.Clear();
+            StartPolling();
+            SetMessage("自动评论已启动。", Severity.Info);
+        }
+        catch
+        {
+            SetMessage("任务未能启动，请稍后重试。", Severity.Error);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task StopJobAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_activeJobId))
+            return;
+        try
+        {
+            _currentJob = await AutomationBridge.StopJobAsync(_activeJobId);
+            StopPolling();
+            await RefreshRunEvidenceAsync();
+            await InvokeAsync(StateHasChanged);
+            SetMessage("自动评论已停止。", Severity.Warning);
+        }
+        catch
+        {
+            SetMessage("停止请求未完成，请稍后重试。", Severity.Error);
+        }
+    }
+
+    private void StartPolling()
+    {
+        StopPolling();
+        _pollingCts = new CancellationTokenSource();
+        _ = PollJobAsync(_pollingCts.Token);
+    }
+
+    private async Task PollJobAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && !string.IsNullOrWhiteSpace(_activeJobId))
+            {
+                _currentJob = await AutomationBridge.GetJobAsync(_activeJobId, cancellationToken);
+                _jobEvents = (await AutomationBridge.GetJobEventsAsync(_activeJobId, 100, cancellationToken)).ToList();
+                await RefreshRunEvidenceAsync(cancellationToken);
+                await InvokeAsync(StateHasChanged);
+                if (IsTerminal(_currentJob.Status))
+                {
+                    StopPolling();
+                    await LoadOperationalDataAsync();
+                    break;
+                }
+                await Task.Delay(1500, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            SetMessage("运行动态暂时中断，刷新后可继续查看。", Severity.Warning);
+        }
+    }
+
+    private async Task RefreshRunEvidenceAsync(CancellationToken cancellationToken = default)
+    {
+        var accountsTask = AutomationBridge.GetAccountsAsync(cancellationToken);
+        var videosTask = AutomationBridge.GetVideosAsync(cancellationToken: cancellationToken);
+        var ledgerTask = AutomationBridge.GetLedgerAsync(cancellationToken);
+        await Task.WhenAll(accountsTask, videosTask, ledgerTask);
+        _accounts = (await accountsTask).ToList();
+        _videos = (await videosTask).ToList();
+        _ledger = (await ledgerTask).ToList();
+    }
+
+    private void StopPolling()
+    {
+        _pollingCts?.Cancel();
+        _pollingCts?.Dispose();
+        _pollingCts = null;
+    }
+
+    private async Task GenerateAiPreviewAsync()
+    {
+        var video = PendingVideos.FirstOrDefault();
+        if (video is null)
+            return;
+        _isBusy = true;
+        try
+        {
+            _aiPreview = await AutomationBridge.GenerateAiCommentPreviewAsync(_commentMode, video.Title, _workflow.Rules);
+            if (string.IsNullOrWhiteSpace(_aiPreview))
+                SetMessage("未生成候选评论，请检查 AI 模型设置。", Severity.Warning);
+        }
+        catch
+        {
+            SetMessage("未生成候选评论，请先在设置中完成 AI 模型配置。", Severity.Warning);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void ChangeCommentMode(string mode)
+    {
+        _commentMode = mode;
+        _aiPreview = "";
+        if (_commentMode == "template" && string.IsNullOrWhiteSpace(_workflow.LibraryId))
+            _workflow.LibraryId = _libraries.FirstOrDefault(item => item.Enabled && item.TemplateCount > 0)?.Id ?? "";
+    }
+
+    private Task OnAccountsSelected(IEnumerable<string> values)
+    {
+        _selectedAccountIds = values.Where(value => !string.IsNullOrWhiteSpace(value)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return Task.CompletedTask;
+    }
+
+    private string FormatSelectedAccountNames(List<string?> selectedValues) =>
+        AutomationAccountSelection.FormatSelectionText(_accounts, selectedValues);
+
+    private void ChangeAccountIntervalUnit(string unit)
+    {
+        var minSeconds = DurationToSeconds(_accountIntervalMinValue, _accountIntervalUnit);
+        var maxSeconds = DurationToSeconds(_accountIntervalMaxValue, _accountIntervalUnit);
+        _accountIntervalUnit = NormalizeDurationUnit(unit);
+        _accountIntervalMinValue = SecondsToDuration(minSeconds, _accountIntervalUnit);
+        _accountIntervalMaxValue = SecondsToDuration(maxSeconds, _accountIntervalUnit);
+    }
+
+    private void ChangeSameAccountCooldownUnit(string unit)
+    {
+        var minSeconds = DurationToSeconds(_sameAccountCooldownMinValue, _sameAccountCooldownUnit);
+        var maxSeconds = DurationToSeconds(_sameAccountCooldownMaxValue, _sameAccountCooldownUnit);
+        _sameAccountCooldownUnit = NormalizeDurationUnit(unit);
+        _sameAccountCooldownMinValue = SecondsToDuration(minSeconds, _sameAccountCooldownUnit);
+        _sameAccountCooldownMaxValue = SecondsToDuration(maxSeconds, _sameAccountCooldownUnit);
+    }
+
+    private void ChangeCycleIntervalUnit(string unit)
+    {
+        var seconds = DurationToSeconds(_cycleIntervalValue, _cycleIntervalUnit);
+        _cycleIntervalUnit = NormalizeDurationUnit(unit);
+        _cycleIntervalValue = SecondsToDuration(seconds, _cycleIntervalUnit);
+    }
+
+    private void OpenNewLibrary()
+    {
+        _editingLibraryId = "";
+        _editingLibraryName = "";
+        _editingLibraryContent = "";
+        _isLibraryDrawerOpen = true;
+    }
+
+    private void OpenEditLibrary(ContentAutomationLibrary library)
+    {
+        _editingLibraryId = library.Id;
+        _editingLibraryName = library.Name;
+        _editingLibraryContent = string.Join(Environment.NewLine, library.Templates.Select(item => item.Text));
+        _isLibraryDrawerOpen = true;
+    }
+
+    private async Task SaveLibraryAsync()
+    {
+        var templates = Lines(_editingLibraryContent);
+        if (string.IsNullOrWhiteSpace(_editingLibraryName) || templates.Count == 0)
+        {
+            Snackbar.Add("请填写词库名称和至少一条评论。", Severity.Warning);
+            return;
+        }
+        _isBusy = true;
+        try
+        {
+            var result = await AutomationBridge.SaveLibraryAsync(new ContentAutomationLibrarySaveRequest
+            {
+                Id = _editingLibraryId,
+                Name = _editingLibraryName.Trim(),
+                Templates = templates,
+                Enabled = true
+            });
+            if (result.Success)
+            {
+                _isLibraryDrawerOpen = false;
+                _libraries = (await AutomationBridge.GetLibrariesAsync()).ToList();
+                Snackbar.Add("评论词库已保存。", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("词库保存失败，请稍后重试。", Severity.Error);
+            }
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteLibraryAsync(ContentAutomationLibrary library)
+    {
+        var confirmed = await DialogService.ShowMessageBox("删除词库", $"确定删除“{library.Name}”吗？", yesText: "删除", cancelText: "取消");
+        if (confirmed != true)
+            return;
+        var result = await AutomationBridge.DeleteLibraryAsync(library.Id);
+        if (result.Success)
+        {
+            _libraries.RemoveAll(item => item.Id == library.Id);
+            if (_workflow.LibraryId == library.Id)
+                _workflow.LibraryId = "";
+            Snackbar.Add("评论词库已删除。", Severity.Success);
+        }
+        else
+        {
+            Snackbar.Add("词库删除失败，请稍后重试。", Severity.Error);
+        }
+    }
+
+    private async Task ImportLibraryFilesAsync(InputFileChangeEventArgs args)
+    {
+        _isBusy = true;
+        try
+        {
+            var selectedFiles = args.GetMultipleFiles(200)
+                .Where(file => string.Equals(Path.GetExtension(file.Name), ".txt", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (selectedFiles.Count == 0)
+            {
+                Snackbar.Add("所选文件夹中没有文本词库。", Severity.Warning);
+                return;
+            }
+
+            var files = new List<ContentAutomationLibraryImportFile>();
+            foreach (var file in selectedFiles.Where(file => file.Size <= 2 * 1024 * 1024))
+            {
+                await using var stream = file.OpenReadStream(2 * 1024 * 1024);
+                using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
+                files.Add(new ContentAutomationLibraryImportFile
+                {
+                    RelativeName = file.Name,
+                    Content = await reader.ReadToEndAsync()
+                });
+            }
+
+            if (files.Count == 0)
+            {
+                Snackbar.Add("词库文件过大或无法读取，请检查后重试。", Severity.Warning);
+                return;
+            }
+
+            var importedNames = files
+                .Select(file => Path.GetFileNameWithoutExtension(file.RelativeName))
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var result = await AutomationBridge.ImportLibrariesFromFilesAsync(files);
+            if (!result.Success || result.Imported <= 0)
+            {
+                Snackbar.Add("词库未能导入，请检查文件内容后重试。", Severity.Error);
+                return;
+            }
+
+            _libraries = (await AutomationBridge.GetLibrariesAsync()).ToList();
+            var importedLibrary = _libraries.FirstOrDefault(library => importedNames.Contains(library.Name));
+            if (importedLibrary is not null)
+            {
+                _commentMode = "template";
+                _workflow.LibraryId = importedLibrary.Id;
+            }
+            Snackbar.Add($"已导入 {result.Imported} 个词库，并选中 {importedLibrary?.Name ?? "新词库"}。", Severity.Success);
+        }
+        catch (InvalidOperationException)
+        {
+            Snackbar.Add("一次最多导入 200 个文本文件。", Severity.Warning);
+        }
+        catch
+        {
+            Snackbar.Add("词库导入失败，请检查文件内容后重试。", Severity.Error);
+        }
+        finally
+        {
+            _isBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ExportLedgerAsync()
+    {
+        var result = await AutomationBridge.ExportLedgerAsync();
+        SetMessage(result.Success ? $"已导出 {result.Count} 条发布记录。" : "记录导出失败，请稍后重试。", result.Success ? Severity.Info : Severity.Error);
+    }
+
+    private async Task DeleteVideoAsync(ContentAutomationVideo video)
+    {
+        _isBusy = true;
+        try
+        {
+            var result = await AutomationBridge.DeleteVideoAsync(video.Id);
+            if (!result.Success || result.Deleted <= 0)
+            {
+                Snackbar.Add("候选视频未能移除，请刷新后重试。", Severity.Error);
+                return;
+            }
+
+            _videos.RemoveAll(item => item.Id == video.Id);
+            _aiPreview = "";
+            Snackbar.Add("已从发现池移除，关联草稿也已删除。", Severity.Success);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private Task DeleteDraftAsync(DraftPreview draft)
+    {
+        var video = _videos.FirstOrDefault(item => item.Id == draft.VideoId);
+        if (video is null)
+        {
+            _aiPreview = "";
+            return Task.CompletedTask;
+        }
+        return DeleteVideoAsync(video);
+    }
+
+    private async Task ClearVideosAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "清空发现池",
+            "将删除全部候选视频和由它们生成的待发布草稿，已发布记录不会受影响。确定继续吗？",
+            yesText: "清空",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        _isBusy = true;
+        try
+        {
+            var result = await AutomationBridge.ClearVideosAsync();
+            if (!result.Success)
+            {
+                Snackbar.Add("发现池未能清空，请稍后重试。", Severity.Error);
+                return;
+            }
+            _videos.Clear();
+            _aiPreview = "";
+            Snackbar.Add($"已清空 {result.Deleted} 条候选视频。", Severity.Success);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void ClearJobEvents()
+    {
+        _jobEvents.Clear();
+    }
+
+    private async Task DeleteLedgerRecordAsync(ContentAutomationLedgerRecord record)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "删除发布记录",
+            "这里只删除本地记录，不会撤回 B 站上已经发表的评论。确定删除吗？",
+            yesText: "删除记录",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        _isBusy = true;
+        try
+        {
+            var result = await AutomationBridge.DeleteLedgerRecordAsync(record.Id);
+            if (!result.Success || result.Deleted <= 0)
+            {
+                Snackbar.Add("发布记录未能删除，请刷新后重试。", Severity.Error);
+                return;
+            }
+            _ledger.RemoveAll(item => item.Id == record.Id);
+            Snackbar.Add("本地发布记录已删除。", Severity.Success);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ClearLedgerAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "清空发布记录",
+            "这里只清空本地记录，不会撤回 B 站上已经发表的评论。确定继续吗？",
+            yesText: "清空记录",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+        var result = await AutomationBridge.ClearLedgerAsync();
+        if (result.Success)
+        {
+            _ledger.Clear();
+            SetMessage("发布记录已清空。", Severity.Warning);
+        }
+    }
+
+    private void ApplyStrategy(ContentAutomationStrategy strategy)
+    {
+        _commentMode = strategy.CommentMode;
+        _keywordsText = string.Join(Environment.NewLine, strategy.Keywords);
+        _selectedAccountIds = strategy.AccountIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _workflow.LibraryId = strategy.LibraryId.StartsWith("__AI__", StringComparison.OrdinalIgnoreCase) ? "" : strategy.LibraryId;
+        _workflow.Rules = strategy.Rules;
+        _workflow.Year = strategy.Year;
+        _workflow.Limit = strategy.SearchLimit;
+        _workflow.MaxCount = strategy.PublishLimit;
+        _workflow.DurationMinutes = strategy.DurationMinutes;
+        _workflow.CycleIntervalMinutes = strategy.CycleIntervalMinutes;
+        _workflow.CycleIntervalSeconds = strategy.CycleIntervalSeconds;
+        _workflow.AccountIntervalMinSeconds = strategy.AccountIntervalMinSeconds;
+        _workflow.AccountIntervalMaxSeconds = strategy.AccountIntervalMaxSeconds;
+        _workflow.SameAccountCooldownMinSeconds = strategy.SameAccountCooldownMinSeconds;
+        _workflow.SameAccountCooldownMaxSeconds = strategy.SameAccountCooldownMaxSeconds;
+        _workflow.CommentMode = strategy.CommentMode;
+        ApplyTimingValuesFromStrategy(strategy);
+    }
+
+    private void ApplyTimingValuesFromStrategy(ContentAutomationStrategy strategy)
+    {
+        _accountIntervalUnit = PreferredDurationUnit(strategy.AccountIntervalMinSeconds, strategy.AccountIntervalMaxSeconds);
+        _accountIntervalMinValue = SecondsToDuration(strategy.AccountIntervalMinSeconds, _accountIntervalUnit);
+        _accountIntervalMaxValue = SecondsToDuration(strategy.AccountIntervalMaxSeconds, _accountIntervalUnit);
+        _sameAccountCooldownUnit = PreferredDurationUnit(strategy.SameAccountCooldownMinSeconds, strategy.SameAccountCooldownMaxSeconds);
+        _sameAccountCooldownMinValue = SecondsToDuration(strategy.SameAccountCooldownMinSeconds, _sameAccountCooldownUnit);
+        _sameAccountCooldownMaxValue = SecondsToDuration(strategy.SameAccountCooldownMaxSeconds, _sameAccountCooldownUnit);
+        _cycleIntervalUnit = PreferredDurationUnit(strategy.CycleIntervalSeconds);
+        _cycleIntervalValue = SecondsToDuration(strategy.CycleIntervalSeconds, _cycleIntervalUnit);
+    }
+
+    private void ApplyTimingValuesToWorkflow()
+    {
+        _workflow.AccountIntervalMinSeconds = DurationToSeconds(_accountIntervalMinValue, _accountIntervalUnit);
+        _workflow.AccountIntervalMaxSeconds = Math.Max(
+            _workflow.AccountIntervalMinSeconds,
+            DurationToSeconds(_accountIntervalMaxValue, _accountIntervalUnit));
+        _workflow.SameAccountCooldownMinSeconds = DurationToSeconds(_sameAccountCooldownMinValue, _sameAccountCooldownUnit);
+        _workflow.SameAccountCooldownMaxSeconds = Math.Max(
+            _workflow.SameAccountCooldownMinSeconds,
+            DurationToSeconds(_sameAccountCooldownMaxValue, _sameAccountCooldownUnit));
+        _workflow.CycleIntervalSeconds = DurationToSeconds(_cycleIntervalValue, _cycleIntervalUnit);
+        _workflow.CycleIntervalMinutes = Math.Max(1, (int)Math.Ceiling(_workflow.CycleIntervalSeconds / 60d));
+    }
+
+    private static int DurationToSeconds(decimal value, string unit)
+    {
+        var factor = NormalizeDurationUnit(unit) == "minutes" ? 60m : 1m;
+        return Math.Clamp((int)Math.Round(value * factor, MidpointRounding.AwayFromZero), 1, 86_400);
+    }
+
+    private static decimal SecondsToDuration(int seconds, string unit) =>
+        NormalizeDurationUnit(unit) == "minutes"
+            ? Math.Round(Math.Max(1, seconds) / 60m, 4)
+            : Math.Max(1, seconds);
+
+    private static string PreferredDurationUnit(params int[] values) =>
+        values.Length > 0 && values.All(value => value >= 60 && value % 60 == 0) ? "minutes" : "seconds";
+
+    private static string NormalizeDurationUnit(string unit) =>
+        unit.Equals("minutes", StringComparison.OrdinalIgnoreCase) ? "minutes" : "seconds";
+
+    private static decimal DurationInputMin(string unit) =>
+        NormalizeDurationUnit(unit) == "minutes" ? 1m / 60m : 1m;
+
+    private static decimal DurationInputMax(string unit) =>
+        NormalizeDurationUnit(unit) == "minutes" ? 1_440m : 86_400m;
+
+    private void OnRuntimeChanged(SystemRuntimeState state)
+    {
+        var becameReady = !_runtime.IsReady && state.IsReady;
+        _runtime = state;
+        _ = InvokeAsync(async () =>
+        {
+            if (becameReady)
+                await LoadOperationalDataAsync();
+            else
+                StateHasChanged();
+        });
+    }
+
+    private void SetMessage(string message, Severity severity)
+    {
+        _message = message;
+        _messageSeverity = severity;
+    }
+
+    private static List<string> Lines(string value) => (value ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(item => item.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    private static bool IsStatus(string value, string expected) => string.Equals(value?.Trim(), expected, StringComparison.OrdinalIgnoreCase);
+    private static bool IsSuccess(string value) => value?.Trim().ToLowerInvariant() is "success" or "done" or "completed";
+    private static bool IsTerminal(string value) => value?.Trim().ToLowerInvariant() is "done" or "success" or "completed" or "failed" or "error" or "stopped" or "timeout" or "manual_required";
+    private static string VideoTitle(ContentAutomationVideo video) => string.IsNullOrWhiteSpace(video.Title) ? video.Bvid : video.Title;
+    private static string AccountDisplayName(ContentAutomationAccount account) => string.IsNullOrWhiteSpace(account.Nickname) ? account.Name : account.Nickname;
+    private static string AccountOptionLabel(ContentAutomationAccount account) =>
+        $"{AccountDisplayName(account)}（{(AutomationAccountSelection.IsAvailable(account) ? "可用" : "需要登录")}）";
+    private static DateTimeOffset ParseTime(string value) => DateTimeOffset.TryParse(value, out var time) ? time : DateTimeOffset.MinValue;
+    private static string FormatTime(string value) => DateTimeOffset.TryParse(value, out var time) ? (time.LocalDateTime.Date == DateTime.Today ? time.LocalDateTime.ToString("HH:mm") : time.LocalDateTime.ToString("MM-dd HH:mm")) : "";
+    private static bool HasPlatformProof(ContentAutomationLedgerRecord item) =>
+        IsSuccess(item.Status) && item.VerificationMethod?.Trim().ToLowerInvariant() is "comment_visible" or "success_notice";
+    private static bool IsPendingConfirmation(ContentAutomationLedgerRecord item) =>
+        item.Status?.Trim().ToLowerInvariant() == "submitted_unverified";
+    private static string EvidenceTime(ContentAutomationLedgerRecord item) =>
+        !string.IsNullOrWhiteSpace(item.VerifiedAt) ? item.VerifiedAt
+        : !string.IsNullOrWhiteSpace(item.PublishedAt) ? item.PublishedAt
+        : item.CreatedAt;
+    private static string VideoUrl(ContentAutomationLedgerRecord item) =>
+        !string.IsNullOrWhiteSpace(item.VideoUrl) ? item.VideoUrl
+        : !string.IsNullOrWhiteSpace(item.Bvid) ? $"https://www.bilibili.com/video/{item.Bvid}" : "#";
+    private static string LedgerStatusText(ContentAutomationLedgerRecord item) =>
+        HasPlatformProof(item) ? "平台已确认"
+        : IsPendingConfirmation(item) ? "待核验"
+        : IsSuccess(item.Status) ? "历史记录"
+        : item.Status?.Trim().ToLowerInvariant() == "skipped" ? "已跳过"
+        : "未完成";
+    private static string LedgerStatusClass(ContentAutomationLedgerRecord item) =>
+        HasPlatformProof(item) ? "bibi-status-chip--success"
+        : IsPendingConfirmation(item) || IsSuccess(item.Status) || item.Status?.Trim().ToLowerInvariant() == "skipped" ? "bibi-status-chip--warning"
+        : "bibi-status-chip--danger";
+    private static string LedgerProofTitle(ContentAutomationLedgerRecord item) =>
+        HasPlatformProof(item) ? "站内结果已核验"
+        : IsPendingConfirmation(item) ? "等待人工核验"
+        : IsSuccess(item.Status) ? "历史记录无站内凭证"
+        : item.Status?.Trim().ToLowerInvariant() == "skipped" ? "本次没有提交"
+        : "发布未完成";
+    private static string LedgerProofDescription(ContentAutomationLedgerRecord item) =>
+        !string.IsNullOrWhiteSpace(item.ProofText) ? item.ProofText
+        : !string.IsNullOrWhiteSpace(item.ErrorMessage) ? item.ErrorMessage
+        : IsSuccess(item.Status) ? "该记录由旧版本生成，无法证明评论仍在站内。"
+        : "未获得可核验的页面结果。";
+    private static string LedgerProofClass(ContentAutomationLedgerRecord item) =>
+        HasPlatformProof(item) ? "is-confirmed" : IsPendingConfirmation(item) || IsSuccess(item.Status) ? "is-pending" : "is-failed";
+    private static string LedgerProofIcon(ContentAutomationLedgerRecord item) =>
+        HasPlatformProof(item) ? Icons.Material.Outlined.Verified
+        : IsPendingConfirmation(item) || IsSuccess(item.Status) ? Icons.Material.Outlined.Schedule
+        : Icons.Material.Outlined.ErrorOutline;
+    private static string EventTitle(ContentAutomationJobEvent? item) => item is null ? "等待任务启动" : item.Status?.Trim().ToLowerInvariant() is "error" or "failed" ? "需要处理" : item.EventType?.Trim().ToLowerInvariant() == "warning" ? "已跳过一项" : "任务进度";
+    private static string EventMessage(ContentAutomationJobEvent? item) => item is null || string.IsNullOrWhiteSpace(item.Message) ? "运行状态会自动更新。" : item.Message;
+    private static string EventClass(ContentAutomationJobEvent item) => item.Status?.Trim().ToLowerInvariant() is "error" or "failed" ? "event-item__dot--error" : item.EventType?.Trim().ToLowerInvariant() == "warning" ? "event-item__dot--warning" : "";
+
+    public ValueTask DisposeAsync()
+    {
+        RuntimeStateStore.Changed -= OnRuntimeChanged;
+        StopPolling();
+        return ValueTask.CompletedTask;
+    }
+
+    private sealed record DraftPreview(string VideoId, string Video, string Comment, string Source);
+}

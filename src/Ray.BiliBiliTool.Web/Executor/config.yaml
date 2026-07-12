@@ -1,0 +1,42 @@
+accounts: []
+
+task:
+  input_file: data/video_links.xlsx
+  interval_seconds: 90
+  max_retry: 2
+  avoid_duplicate: true
+  continue_after_manual_success: true
+  continue_after_manual_timeout: true
+  stop_on_verify: true
+  stop_on_login_required: true
+
+scheduler:
+  account_interval_min_seconds: 480
+  account_interval_max_seconds: 900
+  same_account_cooldown_min_seconds: 1200
+  same_account_cooldown_max_seconds: 2400
+
+comment:
+  template_file: templates/comments.txt
+  template_dir: ""
+  selection_mode: random
+  auto_submit: true
+  human_like_submit: true
+  human_type_min_delay_ms: 80
+  human_type_max_delay_ms: 180
+  human_pause_before_submit_min_ms: 1200
+  human_pause_before_submit_max_ms: 3200
+  human_click_delay_ms: 120
+  wait_manual_submit: true
+  manual_submit_timeout_seconds: 300
+  check_submit_interval_seconds: 3
+
+output:
+  posted_file: data/posted_records.xlsx
+  failed_file: data/failed_records.xlsx
+  processed_file: data/processed_records.xlsx
+
+browser:
+  headless: false
+  slow_mo: 200
+  prefer_system_browser: true

@@ -1,0 +1,170 @@
+@rendermode InteractiveServer
+@using Microsoft.Extensions.Options
+@using Ray.BiliBiliTool.Config.Options
+@using Ray.BiliBiliTool.Web.Components.Pages.Configs
+@using Ray.BiliBiliTool.Web.Services
+@inherits BaseConfigComponent<ContentAutomationBridgeOptions>
+@inject IOptionsMonitor<ContentAutomationBridgeOptions> BridgeOptionsMonitor
+@inject IWebAuditLog AuditLog
+
+<PageTitle>配置与审计</PageTitle>
+
+<section class="bibi-page">
+    <header class="bibi-page-header">
+        <div>
+            <p class="bibi-eyebrow">配置与审计</p>
+            <h1 class="bibi-title">本地模式、执行器配置和操作记录</h1>
+            <p class="bibi-subtitle">系统账号密码入口已关闭。这里集中管理旧执行器桥接、默认限制、高级任务配置、数据入口和 Web 操作审计。</p>
+        </div>
+        <div class="bibi-actions">
+            <span class="bibi-status-chip bibi-status-chip--success">本地访问</span>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Refresh"
+                       OnClick="ReloadConfigAsync">
+                重新加载
+            </MudButton>
+        </div>
+    </header>
+
+    <section class="bibi-panel">
+        <div class="bibi-panel__header">
+            <h2 class="bibi-panel__title">Web 操作审计记录</h2>
+            <MudButton Variant="Variant.Text"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Refresh"
+                       OnClick="LoadAuditAsync">
+                刷新审计
+            </MudButton>
+        </div>
+        <div class="bibi-panel__body">
+            <MudDataGrid Items="@_auditRecords"
+                         Dense="true"
+                         Hover="true"
+                         Breakpoint="Breakpoint.None"
+                         RowsPerPage="20">
+                <Columns>
+                    <TemplateColumn Title="时间">
+                        <CellTemplate>@context.Item.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")</CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Title="操作者" Property="x => x.Actor" />
+                    <PropertyColumn Title="动作" Property="x => x.Action" />
+                    <PropertyColumn Title="详情" Property="x => x.Detail" />
+                    <PropertyColumn Title="结果" Property="x => x.Result" />
+                </Columns>
+                <NoRecordsContent>
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">暂无审计记录。操作记录会保存到本地 Data 目录，重启后仍可查看。</MudAlert>
+                </NoRecordsContent>
+            </MudDataGrid>
+        </div>
+    </section>
+</section>
+
+@code {
+    private readonly List<AdvancedConfigLink> _advancedConfigLinks =
+    [
+        new("调度总表", "/Schedules", "查看 Quartz 调度、历史和日志"),
+        new("数据管理", "/DataManagement", "查看数据大小，清理日志和历史"),
+        new("每日任务", "/Configurations/DailyJobConfig", "BiliBiliToolPro 每日任务"),
+        new("内容评论任务", "/Configurations/ProductCommentTaskConfig", "内容自动化任务配置"),
+        new("漫画任务", "/Configurations/MangaTaskConfig", "漫画签到与相关任务"),
+        new("漫画权益", "/Configurations/MangaPrivilegeTaskConfig", "漫画权益配置"),
+        new("银瓜子兑换", "/Configurations/Silver2CoinTaskConfig", "银瓜子兑换硬币"),
+        new("充电任务", "/Configurations/ChargeTaskConfig", "免费 B 币券充电"),
+        new("会员权益", "/Configurations/VipPrivilegeConfig", "会员权益领取"),
+        new("会员大积分", "/Configurations/VipBigPointConfig", "大积分任务"),
+        new("直播抽奖", "/Configurations/LiveLotteryTaskConfig", "直播抽奖相关配置"),
+        new("粉丝勋章", "/Configurations/LiveFansMedalTaskConfig", "粉丝勋章任务"),
+        new("批量取关", "/Configurations/UnfollowBatchedTaskConfig", "批量取关配置")
+    ];
+
+    private List<WebAuditLogRecord> _auditRecords = [];
+    private bool _isTestingConnection;
+    private bool _connectionSuccess;
+    private string _connectionMessage = "";
+
+    protected override IOptionsMonitor<ContentAutomationBridgeOptions> OptionsMonitor =>
+        BridgeOptionsMonitor;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+        await LoadAuditAsync();
+    }
+
+    protected override async Task HandleValidSubmitAsync()
+    {
+        NormalizeConfig();
+        await base.HandleValidSubmitAsync();
+        await AuditLog.AddAsync("本地用户", "保存执行器配置", _config.BaseUrl, _saveSuccess ? "成功" : "失败");
+        await LoadAuditAsync();
+    }
+
+    private async Task ReloadConfigAsync()
+    {
+        await LoadConfigAsync();
+        await LoadAuditAsync();
+    }
+
+    private async Task LoadAuditAsync()
+    {
+        _auditRecords = (await AuditLog.ListAsync()).ToList();
+    }
+
+    private async Task TestExecutorConnectionAsync()
+    {
+        NormalizeConfig();
+        _isTestingConnection = true;
+        _connectionMessage = "";
+
+        try
+        {
+            if (!Uri.TryCreate(_config.BaseUrl, UriKind.Absolute, out var baseUri))
+            {
+                _connectionSuccess = false;
+                _connectionMessage = "旧执行器地址格式不正确，请填写类似 http://127.0.0.1:8123 的地址。";
+                return;
+            }
+
+            using var httpClient = new HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(Math.Clamp(_config.RequestTimeoutSeconds, 1, 600))
+            };
+            var healthUri = new Uri(baseUri, "/api/health");
+            using var response = await httpClient.GetAsync(healthUri);
+            _connectionSuccess = response.IsSuccessStatusCode;
+            _connectionMessage = response.IsSuccessStatusCode
+                ? $"连接成功：旧执行器已响应 {healthUri}。"
+                : $"连接失败：旧执行器返回 HTTP {(int)response.StatusCode} {response.ReasonPhrase}。";
+
+            await AuditLog.AddAsync("本地用户", "测试执行器连接", _config.BaseUrl, _connectionMessage);
+            await LoadAuditAsync();
+        }
+        catch (Exception ex)
+        {
+            _connectionSuccess = false;
+            _connectionMessage = $"连接失败：{ex.Message}";
+            await AuditLog.AddAsync("本地用户", "测试执行器连接", _config.BaseUrl, _connectionMessage);
+            await LoadAuditAsync();
+        }
+        finally
+        {
+            _isTestingConnection = false;
+        }
+    }
+
+    private void NormalizeConfig()
+    {
+        _config.BaseUrl = string.IsNullOrWhiteSpace(_config.BaseUrl)
+            ? "http://127.0.0.1:8123"
+            : _config.BaseUrl.Trim().TrimEnd('/');
+        _config.ExecutorPath = _config.ExecutorPath?.Trim() ?? "";
+        _config.RequestTimeoutSeconds = Math.Max(1, _config.RequestTimeoutSeconds);
+        _config.DefaultSearchLimit = Math.Max(1, _config.DefaultSearchLimit);
+        _config.DefaultMaxCount = Math.Max(1, _config.DefaultMaxCount);
+        _config.DefaultDailyLimit = Math.Max(0, _config.DefaultDailyLimit);
+        _config.LogRetentionDays = Math.Max(1, _config.LogRetentionDays);
+    }
+
+    private sealed record AdvancedConfigLink(string Name, string Url, string Description);
+}

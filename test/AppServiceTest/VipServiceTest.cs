@@ -7,6 +7,23 @@ using Ray.BiliBiliTool.Infrastructure;
 
 namespace AppServiceTest;
 
+public sealed class LiveBilibiliFactAttribute : FactAttribute
+{
+    public LiveBilibiliFactAttribute()
+    {
+        if (
+            !string.Equals(
+                Environment.GetEnvironmentVariable("BIBI_RUN_LIVE_TESTS"),
+                "1",
+                StringComparison.Ordinal
+            )
+        )
+        {
+            Skip = "Set BIBI_RUN_LIVE_TESTS=1 to run tests that call the live Bilibili account.";
+        }
+    }
+}
+
 public class VipServiceTest
 {
     public VipServiceTest()
@@ -14,7 +31,7 @@ public class VipServiceTest
         Program.CreateHost(new[] { "--ENVIRONMENT=Development" });
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task CompleteV2Test()
     {
         using var scope = Global.ServiceProviderRoot.CreateScope();
@@ -23,7 +40,7 @@ public class VipServiceTest
         Assert.True(res.Code == 0);
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task ReceiveV2Test()
     {
         using var scope = Global.ServiceProviderRoot.CreateScope();

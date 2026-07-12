@@ -107,7 +107,7 @@ public partial class BlazingJob : ComponentBase
     private async Task<string?> ValidateJobName(string name)
     {
         if (string.IsNullOrEmpty(name))
-            return "Job name is required";
+            return "请填写任务名称";
 
         // accept if same as original
         if (OriginalJobKey.Equals(name, JobDetail.Group))
@@ -122,7 +122,7 @@ public partial class BlazingJob : ComponentBase
         var detail = await SchedulerSvc.GetJobDetail(name, JobDetail.Group);
 
         if (detail != null)
-            return "Job name already in used. Please choose another name or group.";
+            return "任务名称已存在，请换一个任务名称或任务分组。";
 
         return null;
     }

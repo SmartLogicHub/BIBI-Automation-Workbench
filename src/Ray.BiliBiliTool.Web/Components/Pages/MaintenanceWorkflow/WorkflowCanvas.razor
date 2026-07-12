@@ -1,0 +1,290 @@
+@using Microsoft.AspNetCore.Components.Web
+@using System.Globalization
+@using Ray.BiliBiliTool.Application.Contracts.MaintenanceWorkflows
+
+<section class="workflow-canvas-shell">
+    <header class="workflow-canvas-head">
+        <div>
+            <span class="workflow-kicker">流程画布</span>
+            <h2>@WorkflowName</h2>
+        </div>
+        <div class="workflow-canvas-stats">
+            <span>@Steps.Count 个节点</span>
+            <span>@Edges.Count 条连线</span>
+            <span>@ZoomPercent%</span>
+        </div>
+    </header>
+
+    <div class="workflow-canvas-stage"
+         @ondrop="OnCanvasDrop"
+         @ondrop:preventDefault
+         @ondragenter:preventDefault
+         @ondragover:preventDefault
+         @onclick="OnCanvasClick">
+        <div class="workflow-canvas-board" style="@BoardStyle">
+            <div class="workflow-canvas-transform" style="@TransformStyle">
+                <svg class="workflow-canvas__edges" aria-hidden="true">
+                    <defs>
+                        <marker id="workflow-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+                            <path d="M0,0 L0,6 L6,3 z" fill="#6c5ce7" />
+                        </marker>
+                    </defs>
+                    @foreach (var edge in Edges)
+                    {
+                        var source = Steps.FirstOrDefault(x => x.Id == edge.SourceStepId);
+                        var target = Steps.FirstOrDefault(x => x.Id == edge.TargetStepId);
+                        if (source is not null && target is not null)
+                        {
+                            var x1 = source.X + NodeWidth;
+                            var y1 = source.Y + 44;
+                            var x2 = target.X;
+                            var y2 = target.Y + 44;
+                            <path d="@GetBezierPath(x1, y1, x2, y2)" marker-end="url(#workflow-arrow)" />
+                        }
+                    }
+                </svg>
+
+                @if (Steps.Count == 0)
+                {
+                    <div class="workflow-empty-state">
+                        <MudIcon Icon="@Icons.Material.Filled.DragIndicator" />
+                        <strong>把左侧养号模块拖到这里</strong>
+                    </div>
+                }
+
+                @foreach (var step in Steps.OrderBy(x => x.SortOrder))
+                {
+                    var node = Nodes.FirstOrDefault(x => x.NodeType == step.NodeType);
+                    <article class="workflow-canvas-node @(SelectedStepId == step.Id ? "workflow-canvas-node--active" : "") @GetNodeStateClass(step.Id)"
+                             style="@($"left:{step.X}px; top:{step.Y}px; {GetNodeColorStyle(step.NodeType)}")"
+                             draggable="true"
+                             @ondragstart="@(() => DragStarted.InvokeAsync(step.Id))"
+                             @onclick:stopPropagation
+                             @onclick="@(() => SelectStep.InvokeAsync(step))">
+                        <span class="workflow-node-anchor workflow-node-anchor--left"></span>
+                        <span class="workflow-node-anchor workflow-node-anchor--right"></span>
+
+                        <div class="workflow-canvas-node__head">
+                            <span class="workflow-canvas-node__order">@step.SortOrder</span>
+                            <div>
+                                <strong>@step.DisplayName</strong>
+                                <small>@ShortNodeType(step.NodeType)</small>
+                            </div>
+                            @if (NodeRunningStates.TryGetValue(step.Id, out var state))
+                            {
+                                <span class="workflow-run-dot @StateDotClass(state)" title="@StateText(state)"></span>
+                            }
+                        </div>
+
+                        <div class="workflow-canvas-node__meta">
+                            @if (!step.Enabled)
+                            {
+                                <span>已停用</span>
+                            }
+                            @if (node?.NodeType.StartsWith("control.", StringComparison.OrdinalIgnoreCase) == true)
+                            {
+                                <span>控制</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(step.Permission))
+                            {
+                                <span>@PermissionText(step.Permission)</span>
+                            }
+                        </div>
+
+                        <div class="workflow-canvas-node__actions">
+                            <MudTooltip Text="单步运行">
+                                <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Small" Color="Color.Success" OnClick="@(() => RunSingleNode.InvokeAsync(step))" />
+                            </MudTooltip>
+                            <MudTooltip Text="前移">
+                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowLeft" Size="Size.Small" OnClick="@(() => MoveStep.InvokeAsync((step.Id, -1)))" />
+                            </MudTooltip>
+                            <MudTooltip Text="后移">
+                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowRight" Size="Size.Small" OnClick="@(() => MoveStep.InvokeAsync((step.Id, 1)))" />
+                            </MudTooltip>
+                            <MudTooltip Text="删除节点">
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveStep.InvokeAsync(step.Id))" />
+                            </MudTooltip>
+                        </div>
+                    </article>
+                }
+            </div>
+        </div>
+
+        <div class="workflow-floating-toolbar" @onclick:stopPropagation>
+            <MudTooltip Text="一键整理">
+                <MudIconButton Icon="@Icons.Material.Filled.FormatAlignLeft" Size="Size.Small" OnClick="AlignSteps" />
+            </MudTooltip>
+            <MudTooltip Text="缩小">
+                <MudIconButton Icon="@Icons.Material.Filled.ZoomOut" Size="Size.Small" OnClick="ZoomOut" />
+            </MudTooltip>
+            <span class="workflow-zoom-pill">@ZoomPercent%</span>
+            <MudTooltip Text="放大">
+                <MudIconButton Icon="@Icons.Material.Filled.ZoomIn" Size="Size.Small" OnClick="ZoomIn" />
+            </MudTooltip>
+            <MudTooltip Text="适配视图">
+                <MudIconButton Icon="@Icons.Material.Filled.CenterFocusStrong" Size="Size.Small" OnClick="FitSteps" />
+            </MudTooltip>
+            <MudTooltip Text="清空画布">
+                <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small" Color="Color.Error" OnClick="ClearSteps" />
+            </MudTooltip>
+        </div>
+
+        <div class="workflow-minimap" aria-hidden="true">
+            @foreach (var step in Steps)
+            {
+                <span style="@($"left:{Math.Clamp(step.X / 12, 4, 128)}px; top:{Math.Clamp(step.Y / 12, 4, 72)}px;")"></span>
+            }
+        </div>
+    </div>
+</section>
+
+@code {
+    private const int NodeWidth = 220;
+    private const int CanvasWidth = 2400;
+    private const int CanvasHeight = 1400;
+
+    [Parameter]
+    public string WorkflowName { get; set; } = "养号流程";
+
+    [Parameter]
+    public IReadOnlyList<MaintenanceWorkflowStep> Steps { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<MaintenanceWorkflowEdge> Edges { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<MaintenanceWorkflowNodeDefinition> Nodes { get; set; } = [];
+
+    [Parameter]
+    public string SelectedStepId { get; set; } = "";
+
+    [Parameter]
+    public int ZoomPercent { get; set; } = 100;
+
+    [Parameter]
+    public EventCallback<MaintenanceWorkflowStep> SelectStep { get; set; }
+
+    [Parameter]
+    public EventCallback<string> DragStarted { get; set; }
+
+    [Parameter]
+    public EventCallback<DragEventArgs> CanvasDropped { get; set; }
+
+    [Parameter]
+    public EventCallback<(string StepId, int Direction)> MoveStep { get; set; }
+
+    [Parameter]
+    public EventCallback<string> RemoveStep { get; set; }
+
+    [Parameter]
+    public EventCallback ClearCanvas { get; set; }
+
+    [Parameter]
+    public EventCallback AlignCanvas { get; set; }
+
+    [Parameter]
+    public EventCallback FitCanvas { get; set; }
+
+    [Parameter]
+    public EventCallback<int> ZoomChanged { get; set; }
+
+    [Parameter]
+    public Dictionary<string, string> NodeRunningStates { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<MaintenanceWorkflowStep> RunSingleNode { get; set; }
+
+    private double ZoomScale => Math.Clamp(ZoomPercent, 50, 150) / 100d;
+
+    private string BoardStyle => string.Format(
+        CultureInfo.InvariantCulture,
+        "width:{0}px; height:{1}px;",
+        CanvasWidth * ZoomScale,
+        CanvasHeight * ZoomScale);
+
+    private string TransformStyle => string.Format(
+        CultureInfo.InvariantCulture,
+        "width:{0}px; height:{1}px; transform:scale({2});",
+        CanvasWidth,
+        CanvasHeight,
+        ZoomScale);
+
+    private Task OnCanvasDrop(DragEventArgs args) => CanvasDropped.InvokeAsync(args);
+
+    private Task OnCanvasClick() => Task.CompletedTask;
+
+    private Task AlignSteps() => AlignCanvas.InvokeAsync();
+
+    private Task FitSteps() => FitCanvas.InvokeAsync();
+
+    private Task ZoomOut() => ZoomChanged.InvokeAsync(Math.Max(50, ZoomPercent - 10));
+
+    private Task ZoomIn() => ZoomChanged.InvokeAsync(Math.Min(150, ZoomPercent + 10));
+
+    private Task ClearSteps() => ClearCanvas.InvokeAsync();
+
+    private static string GetBezierPath(int x1, int y1, int x2, int y2)
+    {
+        var controlOffset = Math.Max(70, Math.Abs(x2 - x1) / 2);
+        return $"M {x1} {y1} C {x1 + controlOffset} {y1}, {x2 - controlOffset} {y2}, {x2} {y2}";
+    }
+
+    private static string GetNodeColorStyle(string nodeType)
+    {
+        var type = (nodeType ?? "").ToLowerInvariant();
+        if (type.StartsWith("control."))
+            return "--node-accent:#f97316; --node-tint:rgba(249,115,22,.06);";
+        if (type.Contains("vip"))
+            return "--node-accent:#7c3aed; --node-tint:rgba(124,58,237,.06);";
+        if (type.Contains("live"))
+            return "--node-accent:#059669; --node-tint:rgba(5,150,105,.06);";
+        if (type.Contains("coin") || type.Contains("charge"))
+            return "--node-accent:#b7791f; --node-tint:rgba(183,121,31,.08);";
+        return "--node-accent:#0b8fb8; --node-tint:rgba(11,143,184,.06);";
+    }
+
+    private string GetNodeStateClass(string stepId)
+    {
+        if (NodeRunningStates.TryGetValue(stepId, out var state))
+        {
+            return state?.ToLowerInvariant() switch
+            {
+                "running" => "workflow-canvas-node--running",
+                "success" => "workflow-canvas-node--success",
+                "failed" => "workflow-canvas-node--failed",
+                _ => ""
+            };
+        }
+        return "";
+    }
+
+    private static string StateDotClass(string state) => state?.ToLowerInvariant() switch
+    {
+        "running" => "workflow-run-dot--running",
+        "success" => "workflow-run-dot--success",
+        "failed" => "workflow-run-dot--failed",
+        _ => ""
+    };
+
+    private static string StateText(string state) => state?.ToLowerInvariant() switch
+    {
+        "running" => "运行中",
+        "success" => "成功",
+        "failed" => "失败",
+        _ => "等待"
+    };
+
+    private static string ShortNodeType(string nodeType)
+    {
+        var parts = (nodeType ?? "").Split('.', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 0 ? string.Empty : parts[^1].Replace('_', ' ');
+    }
+
+    private static string PermissionText(string permission) => permission switch
+    {
+        "big_vip" => "大会员",
+        "monthly_bcoin_coupon" => "B币券",
+        "purchase_required" => "付费",
+        _ => permission
+    };
+}

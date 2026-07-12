@@ -57,6 +57,15 @@ public class VideoDetail
     /// 稿件总时长（所有分P）(单位为秒)
     /// </summary>
     public long Duration { get; set; }
+
+    public VideoOwnerInfo? Owner { get; set; }
+}
+
+public class VideoOwnerInfo
+{
+    public long Mid { get; set; }
+
+    public string Name { get; set; } = "";
 }
 
 /*

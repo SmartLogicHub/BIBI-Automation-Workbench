@@ -49,9 +49,7 @@ public static class ServiceCollectionQuartzConfiguratorExtensions
         quartz.AddTrigger(opts =>
             opts.ForJob(VipPrivilegeJob.Key)
                 .WithIdentity($"{VipPrivilegeJob.Key}.Cron.Trigger", Constants.BiliJobGroup)
-                .WithCronSchedule(
-                    configuration["VipPrivilegeConfig:Cron"] ?? DefaultCron
-                )
+                .WithCronSchedule(configuration["VipPrivilegeConfig:Cron"] ?? DefaultCron)
         );
 
         // Silver2Coin job
@@ -100,6 +98,14 @@ public static class ServiceCollectionQuartzConfiguratorExtensions
             opts.ForJob(UnfollowBatchedJob.Key)
                 .WithIdentity($"{UnfollowBatchedJob.Key}.Cron.Trigger", Constants.BiliJobGroup)
                 .WithCronSchedule(configuration["UnfollowBatchedTaskConfig:Cron"] ?? DefaultCron)
+        );
+
+        // Product comment dry-run job
+        quartz.AddJob<ProductCommentJob>(opts => opts.WithIdentity(ProductCommentJob.Key));
+        quartz.AddTrigger(opts =>
+            opts.ForJob(ProductCommentJob.Key)
+                .WithIdentity($"{ProductCommentJob.Key}.Cron.Trigger", Constants.BiliJobGroup)
+                .WithCronSchedule(configuration["ProductCommentTaskConfig:Cron"] ?? DefaultCron)
         );
 
         // Test bili job

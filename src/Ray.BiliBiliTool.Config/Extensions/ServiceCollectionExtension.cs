@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Ray.BiliBiliTool.Config.Options;
 using Ray.BiliBiliTool.Infrastructure;
 
@@ -40,7 +41,57 @@ public static class ServiceCollectionExtension
             .Configure<LiveFansMedalTaskOptions>(
                 configuration.GetSection("LiveFansMedalTaskConfig")
             )
-            .Configure<QingLongOptions>(configuration.GetSection("QingLongConfig"));
+            .Configure<QingLongOptions>(configuration.GetSection("QingLongConfig"))
+            .Configure<ContentAutomationBridgeOptions>(
+                configuration.GetSection("ContentAutomationBridge")
+            )
+            .Configure<LocalWorkbenchOptions>(configuration.GetSection("LocalWorkbench"));
+
+        // ProductCommentTaskOptions 安全校验
+        services
+            .AddOptions<ProductCommentTaskOptions>()
+            .Bind(configuration.GetSection("ProductCommentTaskConfig"))
+            .Validate(
+                opts => opts.CommentIntervalMaxSeconds >= opts.CommentIntervalMinSeconds,
+                "ProductCommentTaskConfig: CommentIntervalMaxSeconds must be >= CommentIntervalMinSeconds"
+            )
+            .Validate(
+                opts => opts.CommentIntervalMinSeconds >= 0,
+                "ProductCommentTaskConfig: CommentIntervalMinSeconds must be >= 0"
+            )
+            .Validate(
+                opts => opts.CommentIntervalMaxSeconds >= 0,
+                "ProductCommentTaskConfig: CommentIntervalMaxSeconds must be >= 0"
+            );
+        services
+            .AddOptions<ContentAutomationBridgeOptions>()
+            .Bind(configuration.GetSection("ContentAutomationBridge"))
+            .Validate(
+                opts => Uri.TryCreate(opts.BaseUrl, UriKind.Absolute, out _),
+                "ContentAutomationBridge: BaseUrl must be an absolute URL"
+            )
+            .Validate(
+                opts => opts.RequestTimeoutSeconds > 0,
+                "ContentAutomationBridge: RequestTimeoutSeconds must be > 0"
+            )
+            .Validate(
+                opts => opts.DefaultSearchLimit > 0,
+                "ContentAutomationBridge: DefaultSearchLimit must be > 0"
+            )
+            .Validate(
+                opts => opts.DefaultMaxCount > 0,
+                "ContentAutomationBridge: DefaultMaxCount must be > 0"
+            )
+            .Validate(
+                opts => opts.LogRetentionDays > 0,
+                "ContentAutomationBridge: LogRetentionDays must be > 0"
+            );
+
+        services
+            .AddOptions<LocalWorkbenchOptions>()
+            .Bind(configuration.GetSection("LocalWorkbench"))
+            .Validate(opts => opts.WebPort > 0, "LocalWorkbench: WebPort must be > 0")
+            .Validate(opts => opts.ExecutorPort > 0, "LocalWorkbench: ExecutorPort must be > 0");
 
         return services;
     }

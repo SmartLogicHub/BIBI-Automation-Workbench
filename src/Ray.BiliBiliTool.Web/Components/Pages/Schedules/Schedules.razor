@@ -1,274 +1,331 @@
-@page "/Schedules"
-@attribute [Authorize]
 @rendermode InteractiveServer
 @attribute [StreamRendering]
 @using BlazingQuartz
 @using BlazingQuartz.Core.Models
-@using Microsoft.AspNetCore.Authorization
 @using Ray.BiliBiliTool.Web.Extensions
 
-<PageTitle>Schedules</PageTitle>
+<PageTitle>高级调度</PageTitle>
 
-<div>
-    <MudText Typo="Typo.h5">Schedules</MudText>
+<section class="bibi-page">
+    <header class="bibi-page-header">
+        <div>
+            <p class="bibi-eyebrow">高级配置</p>
+            <h1 class="bibi-title">Quartz 高级调度</h1>
+            <p class="bibi-subtitle">这里保留底层调度能力，用于查看触发器、日志和历史。日常养号操作建议优先使用“养号任务”。</p>
+        </div>
+        <div class="bibi-actions">
+            <MudButton Href="/FarmingTasks"
+                       Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.ArrowBack">
+                返回养号任务
+            </MudButton>
+        </div>
+    </header>
 
-    <MudDataGrid @ref="_scheduleDataGrid" Items="@ScheduledJobs"
-                 MultiSelection="true" Filterable="false"
-                 ShowColumnOptions="false" SortMode="SortMode.None"
-                 RowStyleFunc="@ScheduleRowStyleFunc"
-                 Breakpoint="Breakpoint.None"
-                 Hideable="true" Groupable="true" GroupExpanded="true"
-                 RowsPerPage="50">
-        <ColGroup>
-            <col/> @* checkbox *@
-            <col style="width: 40px"/> @* status *@
-            <col style="width: 20%"/> @* job name *@
-            <col style="width: 20%"/> @* trigger *@
-            <col style="width: 120px"/> @* dchedule type *@
-            <col style="width: 15%"/> @* job full name *@
-            <col style="width: 120px"/> @* next run *@
-            <col style="width: 120px"/> @* last type *@
-            <col style="width: 110px"/> @* action *@
-        </ColGroup>
-        <Columns>
-            <SelectColumn T="ScheduleModel" ShowInFooter="false"/>
+    <section class="bibi-panel">
+        <div class="bibi-panel__body">
+            <MudDataGrid @ref="_scheduleDataGrid"
+                         Items="@ScheduledJobs"
+                         MultiSelection="true"
+                         Filterable="false"
+                         ShowColumnOptions="false"
+                         SortMode="SortMode.None"
+                         RowStyleFunc="@ScheduleRowStyleFunc"
+                         Breakpoint="Breakpoint.None"
+                         Hideable="true"
+                         Groupable="true"
+                         GroupExpanded="true"
+                         RowsPerPage="50">
+                <ColGroup>
+                    <col />
+                    <col style="width: 48px" />
+                    <col style="width: 20%" />
+                    <col style="width: 20%" />
+                    <col style="width: 120px" />
+                    <col style="width: 15%" />
+                    <col style="width: 150px" />
+                    <col style="width: 150px" />
+                    <col style="width: 130px" />
+                </ColGroup>
+                <Columns>
+                    <SelectColumn T="ScheduleModel" ShowInFooter="false" />
 
-            <PropertyColumn Title="Job Group" Property="x => x.JobGroup"
-                            Grouping="true" Hidden="true" ShowColumnOptions="false" GroupBy="@_groupDefinition">
-                <GroupTemplate>
-                    <span style="font-weight:bold">
-                        Job Group: @context.Grouping.Key
-                        <MudChip Size="Size.Small" Variant="Variant.Outlined">Total: @context.Grouping.Count()</MudChip>
-                    </span>
-                </GroupTemplate>
-            </PropertyColumn>
+                    <PropertyColumn Title="任务分组" Property="x => x.JobGroup"
+                                    Grouping="true"
+                                    Hidden="true"
+                                    ShowColumnOptions="false"
+                                    GroupBy="@_groupDefinition">
+                        <GroupTemplate>
+                            <span style="font-weight:bold">
+                                任务分组：@GetJobGroupDisplayName(context.Grouping.Key?.ToString())
+                                <MudChip Size="Size.Small" Variant="Variant.Outlined">共 @context.Grouping.Count() 个</MudChip>
+                            </span>
+                        </GroupTemplate>
+                    </PropertyColumn>
 
-            <TemplateColumn Title="Status" Filterable="false" Groupable="false"
-                            HeaderStyle="text-align: center;padding: 0px"
-                            CellStyle="text-align: center;padding: 0px"
-                            Sortable="false"
-                            ShowColumnOptions="false">
-                <CellTemplate>
-                    @switch (context.Item.JobStatus)
-                    {
-                        case JobStatus.Running:
-                            <MudProgressCircular Color="Color.Primary" Size="Size.Small"
-                                                 Style="vertical-align: middle;"
-                                                 title="Running"
-                                                 Indeterminate="true"/>
-                            break;
-                        case JobStatus.Idle:
-                            <MudIcon Icon="@Icons.Material.Filled.Circle" Class="green-text"
-                                     Style="vertical-align: middle;"
-                                     Title="Idle"
-                                     Size="Size.Medium"/>
-                            break;
-                        case JobStatus.Paused:
-                            <MudIcon Icon="@Icons.Material.Filled.Circle" Class="grey-text"
-                                     Style="vertical-align: middle;"
-                                     Title="Paused"
-                                     Size="Size.Medium"/>
-                            break;
-                        case JobStatus.NoSchedule:
-                            <MudIcon Icon="@Icons.Material.Filled.AutoDelete" Class="grey-text"
-                                     Style="vertical-align: middle;"
-                                     Title="Schedule completed and job got deleted"
-                                     Size="Size.Small"/>
-                            break;
-                        case JobStatus.Error:
-                            <MudTooltip>
-                                <ChildContent>
-                                    <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small"
+                    <TemplateColumn Title="状态" Filterable="false" Groupable="false"
+                                    HeaderStyle="text-align: center;padding: 0"
+                                    CellStyle="text-align: center;padding: 0"
+                                    Sortable="false"
+                                    ShowColumnOptions="false">
+                        <CellTemplate>
+                            @switch (context.Item.JobStatus)
+                            {
+                                case JobStatus.Running:
+                                    <MudProgressCircular Color="Color.Primary"
+                                                         Size="Size.Small"
+                                                         Style="vertical-align: middle;"
+                                                         title="运行中"
+                                                         Indeterminate="true" />
+                                    break;
+                                case JobStatus.Idle:
+                                    <MudIcon Icon="@Icons.Material.Filled.Circle"
+                                             Class="green-text"
                                              Style="vertical-align: middle;"
-                                             Color="@Color.Error"/>
-                                </ChildContent>
-                                <TooltipContent>
-                                    <div style="max-width: 220px; overflow-wrap: break-word;">
-                                        @if (!string.IsNullOrEmpty(context.Item.ExceptionMessage))
-                                        {
-                                            @("Job has error. " + context.Item.ExceptionMessage)
-                                        }
-                                        else
-                                        {
-                                            @("Job has error.")
-                                        }
-                                    </div>
-                                </TooltipContent>
+                                             Title="正常"
+                                             Size="Size.Medium" />
+                                    break;
+                                case JobStatus.Paused:
+                                    <MudIcon Icon="@Icons.Material.Filled.Circle"
+                                             Class="grey-text"
+                                             Style="vertical-align: middle;"
+                                             Title="已暂停"
+                                             Size="Size.Medium" />
+                                    break;
+                                case JobStatus.NoSchedule:
+                                    <MudIcon Icon="@Icons.Material.Filled.AutoDelete"
+                                             Class="grey-text"
+                                             Style="vertical-align: middle;"
+                                             Title="计划已完成"
+                                             Size="Size.Small" />
+                                    break;
+                                case JobStatus.Error:
+                                    <MudTooltip>
+                                        <ChildContent>
+                                            <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline"
+                                                     Size="Size.Small"
+                                                     Style="vertical-align: middle;"
+                                                     Color="@Color.Error" />
+                                        </ChildContent>
+                                        <TooltipContent>
+                                            <div style="max-width: 220px; overflow-wrap: break-word;">
+                                                @(string.IsNullOrEmpty(context.Item.ExceptionMessage)
+                                                    ? "任务异常。"
+                                                    : $"任务异常：{context.Item.ExceptionMessage}")
+                                            </div>
+                                        </TooltipContent>
+                                    </MudTooltip>
+                                    break;
+                                case JobStatus.NoTrigger:
+                                    <MudIcon Icon="@Icons.Material.Filled.AlarmOff"
+                                             Class="grey-text"
+                                             Style="vertical-align: middle;"
+                                             Title="无触发器"
+                                             Size="Size.Small" />
+                                    break;
+                            }
+                        </CellTemplate>
+                    </TemplateColumn>
 
+                    <PropertyColumn Title="任务名" Property="x => x.JobName" ShowColumnOptions="false">
+                        <CellTemplate>
+                            <MudTooltip Duration="1000" Text="@context.Item.JobDescription">
+                                @GetJobDisplayName(context.Item.JobName)
                             </MudTooltip>
-                            break;
-                        case JobStatus.NoTrigger:
-                            <MudIcon Icon="@Icons.Material.Filled.AlarmOff" Class="grey-text"
-                                     Style="vertical-align: middle;"
-                                     Title="No trigger"
-                                     Size="Size.Small"/>
-                            break;
-                    }
-                </CellTemplate>
-            </TemplateColumn>
-            <PropertyColumn Title="Job Name" Property="x => x.JobName" ShowColumnOptions="false">
-                <CellTemplate>
-                    <MudTooltip Duration="1000" Text="@context.Item.JobDescription">
-                        @context.Item.JobName
-                    </MudTooltip>
-                </CellTemplate>
-            </PropertyColumn>
-            <PropertyColumn Title="Trigger" Property="x => x.TriggerName"
-                            ShowColumnOptions="false">
-                <CellTemplate>
-                    @if (context.Item.JobStatus == JobStatus.NoTrigger)
-                    {
-                        <MudText Typo="Typo.body1">--</MudText>
-                    }
-                    else
-                    {
-                        <MudTooltip Duration="1000" Text="@context.Item.TriggerDescription">
-                            @context.Item.TriggerName
-                        </MudTooltip>
-                    }
-                </CellTemplate>
-            </PropertyColumn>
-            <PropertyColumn Title="Schedule" Property="x => x.TriggerType">
-                <CellTemplate>
-                    @if (context.Item.JobStatus == JobStatus.NoTrigger)
-                    {
-                        <MudText Typo="Typo.body1">--</MudText>
-                    }
-                    else
-                    {
-                        @if (context.Item.TriggerDetail == null)
-                        {
-                            <div class="d-flex align-center">
-                                <MudIcon Icon="@context.Item.TriggerType.GetTriggerTypeIcon()"
-                                         Title="@(context.Item.TriggerType.ToString())" Size="Size.Small"
-                                         Class="mr-1"/>
-                                @(context.Item.TriggerType == TriggerType.Unknown ? context.Item.TriggerTypeClassName == null ? TriggerType.Unknown.ToString() : context.Item.TriggerTypeClassName : context.Item.TriggerType)
-                            </div>
-                        }
-                        else
-                        {
-                            <MudTooltip>
-                                <ChildContent>
-                                    <div class="d-flex align-center">
-                                        <MudIcon Icon="@context.Item.TriggerType.GetTriggerTypeIcon()"
-                                                 Title="@(context.Item.TriggerType.ToString())" Size="Size.Small"
-                                                 Class="mr-1"/>
-                                        @(context.Item.TriggerType == TriggerType.Unknown ? context.Item.TriggerTypeClassName == null ? TriggerType.Unknown.ToString() : context.Item.TriggerTypeClassName : context.Item.TriggerType)
-                                    </div>
-                                </ChildContent>
-                                <TooltipContent>
-                                    <div
-                                        style="max-width: 220px; overflow-wrap: break-word;">@(context.Item.TriggerDetail?.ToSummaryString())</div>
-                                </TooltipContent>
-                            </MudTooltip>
-                        }
-                    }
-                </CellTemplate>
-            </PropertyColumn>
-            <PropertyColumn Title="Job Type" Property="x => x.JobType">
-                <CellTemplate>
-                    <MudTooltip Duration="1000" Text="@context.Item.JobType">
-                        @context.Item.GetJobTypeShortName()
-                    </MudTooltip>
-                </CellTemplate>
-            </PropertyColumn>
-            <TemplateColumn Title="Next Run" Groupable="false" Filterable="false"
-                            ShowColumnOptions="false">
-                <CellTemplate>
-                    @if (context.Item.JobStatus == JobStatus.NoTrigger)
-                    {
-                        <MudText Typo="Typo.body1">--</MudText>
-                    }
-                    else
-                    {
-                        @context.Item.NextTriggerTime?.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")
-                    }
-                </CellTemplate>
-            </TemplateColumn>
-            <TemplateColumn Title="Last Run" Groupable="false" Filterable="false"
-                            ShowColumnOptions="false">
-                <CellTemplate>
-                    <div class="d-flex gap-1">
-                        @if (!string.IsNullOrEmpty(context.Item.ExceptionMessage)
-                             && context.Item.JobStatus != JobStatus.Error)
-                        {
-                            <MudTooltip>
-                                <ChildContent>
-                                    <MudIcon Icon="@Icons.Material.Filled.Error" Size="Size.Small"
-                                             Color="@Color.Error"/>
-                                </ChildContent>
-                                <TooltipContent>
-                                    <div
-                                        style="max-width: 220px; overflow-wrap: break-word;">@context.Item.ExceptionMessage</div>
-                                </TooltipContent>
+                        </CellTemplate>
+                    </PropertyColumn>
 
-                            </MudTooltip>
-                        }
+                    <PropertyColumn Title="触发器" Property="x => x.TriggerName" ShowColumnOptions="false">
+                        <CellTemplate>
+                            @if (context.Item.JobStatus == JobStatus.NoTrigger)
+                            {
+                                <MudText Typo="Typo.body1">--</MudText>
+                            }
+                            else
+                            {
+                                <MudTooltip Duration="1000" Text="@context.Item.TriggerDescription">
+                                    @GetTriggerDisplayName(context.Item)
+                                </MudTooltip>
+                            }
+                        </CellTemplate>
+                    </PropertyColumn>
 
-                        @if (context.Item.JobStatus == JobStatus.NoTrigger &&
-                             !context.Item.PreviousTriggerTime.HasValue)
-                        {
-                            <MudText Typo="Typo.body1">--</MudText>
-                        }
-                        else
-                        {
-                            @context.Item.PreviousTriggerTime?.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")
-                        }
-                    </div>
-                </CellTemplate>
-            </TemplateColumn>
-            <TemplateColumn Title="Actions" Groupable="false" Filterable="false" ShowColumnOptions="false"
-                            HeaderStyle="padding-left: 0px;"
-                            CellClass="tab__actions"
-                            Sortable="false">
-                <CellTemplate>
-                    <MudTooltip Duration="1000" Text="Trigger Now">
-                        <MudIconButton Icon="@Icons.Material.Filled.PlayCircleOutline"
-                                       Size="Size.Small"
-                                       Disabled="@IsTriggerNowActionDisabled(context.Item)"
-                                       OnClick="@(async () => await OnTriggerNow(context.Item))"></MudIconButton>
-                    </MudTooltip>
-                    <MudTooltip Duration="1000" Text="Logs">
-                        <MudIconButton Icon="@Icons.Material.Filled.History"
-                                       Size="Size.Small"
-                                       OnClick="@(() => OnLogs(context.Item))"></MudIconButton>
-                    </MudTooltip>
-                    <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Style="display: inline-block;">
-                        @if (context.Item.JobStatus is JobStatus.Paused or JobStatus.NoTrigger)
-                        {
-                            <MudMenuItem Disabled="@IsRunActionDisabled(context.Item)" OnClick="@(async () => await OnResumeScheduleJob(context.Item))">
-                                <div class="d-flex gap-1">
-                                    <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Title="Enable" Size="Size.Small"/>
-                                    <MudText Typo="Typo.body1">Enable</MudText>
+                    <PropertyColumn Title="调度类型" Property="x => x.TriggerType">
+                        <CellTemplate>
+                            @if (context.Item.JobStatus == JobStatus.NoTrigger)
+                            {
+                                <MudText Typo="Typo.body1">--</MudText>
+                            }
+                            else
+                            {
+                                <div class="d-flex align-center">
+                                    <MudIcon Icon="@context.Item.TriggerType.GetTriggerTypeIcon()"
+                                             Title="@(context.Item.TriggerType.ToString())"
+                                             Size="Size.Small"
+                                             Class="mr-1" />
+                                    @GetTriggerTypeDisplayName(context.Item)
                                 </div>
-                            </MudMenuItem>
-                        }
-                        else
-                        {
-                            <MudMenuItem Disabled="@IsPauseActionDisabled(context.Item)" OnClick="@(async () => await OnPauseScheduleJob(context.Item))">
-                                <div class="d-flex gap-1">
-                                    <MudIcon Icon="@Icons.Material.Filled.Pause" Title="Disable" Size="Size.Small"/>
-                                    <MudText Typo="Typo.body1">Disable</MudText>
-                                </div>
-                            </MudMenuItem>
-                        }
-                        <MudMenuItem Disabled="@IsHistoryActionDisabled(context.Item)" OnClick="@(() => OnJobHistory(context.Item))">
+                            }
+                        </CellTemplate>
+                    </PropertyColumn>
+
+                    <PropertyColumn Title="任务类型" Property="x => x.JobType">
+                        <CellTemplate>
+                            <MudTooltip Duration="1000" Text="@context.Item.JobType">
+                                @GetJobDisplayName(context.Item.JobName)
+                            </MudTooltip>
+                        </CellTemplate>
+                    </PropertyColumn>
+
+                    <TemplateColumn Title="下次运行" Groupable="false" Filterable="false" ShowColumnOptions="false">
+                        <CellTemplate>
+                            @if (context.Item.JobStatus == JobStatus.NoTrigger)
+                            {
+                                <MudText Typo="Typo.body1">--</MudText>
+                            }
+                            else
+                            {
+                                @context.Item.NextTriggerTime?.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")
+                            }
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn Title="最近运行" Groupable="false" Filterable="false" ShowColumnOptions="false">
+                        <CellTemplate>
                             <div class="d-flex gap-1">
-                                <MudIcon Icon="@Icons.Material.Filled.ListAlt" Title="History" Size="Size.Small"/>
-                                <MudText Typo="Typo.body1">History</MudText>
-                            </div>
-                        </MudMenuItem>
-                    </MudMenu>
-                </CellTemplate>
-            </TemplateColumn>
-        </Columns>
-        <PagerContent>
-            <MudDataGridPager T="ScheduleModel"/>
-        </PagerContent>
-    </MudDataGrid>
-</div>
+                                @if (!string.IsNullOrEmpty(context.Item.ExceptionMessage)
+                                     && context.Item.JobStatus != JobStatus.Error)
+                                {
+                                    <MudTooltip>
+                                        <ChildContent>
+                                            <MudIcon Icon="@Icons.Material.Filled.Error" Size="Size.Small" Color="@Color.Error" />
+                                        </ChildContent>
+                                        <TooltipContent>
+                                            <div style="max-width: 220px; overflow-wrap: break-word;">@context.Item.ExceptionMessage</div>
+                                        </TooltipContent>
+                                    </MudTooltip>
+                                }
 
-<MudThemeProvider/>
-<MudPopoverProvider/>
-<MudDialogProvider/>
-<MudSnackbarProvider/>
+                                @if (context.Item.JobStatus == JobStatus.NoTrigger && !context.Item.PreviousTriggerTime.HasValue)
+                                {
+                                    <MudText Typo="Typo.body1">--</MudText>
+                                }
+                                else
+                                {
+                                    @context.Item.PreviousTriggerTime?.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")
+                                }
+                            </div>
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn Title="操作" Groupable="false" Filterable="false" ShowColumnOptions="false"
+                                    HeaderStyle="padding-left: 0"
+                                    CellClass="tab__actions"
+                                    Sortable="false">
+                        <CellTemplate>
+                            <MudTooltip Duration="1000" Text="立即运行">
+                                <MudIconButton Icon="@Icons.Material.Filled.PlayCircleOutline"
+                                               Size="Size.Small"
+                                               aria-label="立即运行"
+                                               Disabled="@IsTriggerNowActionDisabled(context.Item)"
+                                               OnClick="@(async () => await OnTriggerNow(context.Item))" />
+                            </MudTooltip>
+                            <MudTooltip Duration="1000" Text="日志">
+                                <MudIconButton Icon="@Icons.Material.Filled.History"
+                                               Size="Size.Small"
+                                               aria-label="查看日志"
+                                               OnClick="@(() => OnLogs(context.Item))" />
+                            </MudTooltip>
+                            <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Style="display: inline-block;" aria-label="更多操作">
+                                @if (context.Item.JobStatus is JobStatus.Paused or JobStatus.NoTrigger)
+                                {
+                                    <MudMenuItem Disabled="@IsRunActionDisabled(context.Item)" OnClick="@(async () => await OnResumeScheduleJob(context.Item))">
+                                        <div class="d-flex gap-1">
+                                            <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Title="启用" Size="Size.Small" />
+                                            <MudText Typo="Typo.body1">启用</MudText>
+                                        </div>
+                                    </MudMenuItem>
+                                }
+                                else
+                                {
+                                    <MudMenuItem Disabled="@IsPauseActionDisabled(context.Item)" OnClick="@(async () => await OnPauseScheduleJob(context.Item))">
+                                        <div class="d-flex gap-1">
+                                            <MudIcon Icon="@Icons.Material.Filled.Pause" Title="停用" Size="Size.Small" />
+                                            <MudText Typo="Typo.body1">停用</MudText>
+                                        </div>
+                                    </MudMenuItem>
+                                }
+                                <MudMenuItem Disabled="@IsHistoryActionDisabled(context.Item)" OnClick="@(() => OnJobHistory(context.Item))">
+                                    <div class="d-flex gap-1">
+                                        <MudIcon Icon="@Icons.Material.Filled.ListAlt" Title="历史" Size="Size.Small" />
+                                        <MudText Typo="Typo.body1">历史</MudText>
+                                    </div>
+                                </MudMenuItem>
+                            </MudMenu>
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+                <NoRecordsContent>
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">暂无调度任务。</MudAlert>
+                </NoRecordsContent>
+            </MudDataGrid>
+        </div>
+    </section>
+</section>
+
+@code {
+    private static string GetJobDisplayName(string? jobName)
+    {
+        return jobName switch
+        {
+            "ChargeJob" => "充电任务",
+            "DailyJob" => "每日任务",
+            "LiveFansMedalJob" => "粉丝勋章任务",
+            "LiveLotteryJob" => "直播抽奖任务",
+            "LoginJob" => "登录状态刷新",
+            "MangaJob" => "漫画任务",
+            "MangaPrivilegeJob" => "漫画权益任务",
+            "ProductCommentJob" => "内容评论任务",
+            "Silver2CoinJob" => "银瓜子兑换任务",
+            "TestBiliJob" => "测试任务",
+            "UnfollowBatchedJob" => "批量取关任务",
+            "VipBigPointJob" => "会员大积分任务",
+            "VipPrivilegeJob" => "会员权益任务",
+            _ => string.IsNullOrWhiteSpace(jobName) ? "未命名任务" : jobName
+        };
+    }
+
+    private static string GetJobGroupDisplayName(string? jobGroup)
+    {
+        return jobGroup switch
+        {
+            "BiliJob" => "B 站任务",
+            _ => string.IsNullOrWhiteSpace(jobGroup) ? "默认分组" : jobGroup
+        };
+    }
+
+    private static string GetTriggerDisplayName(ScheduleModel model)
+    {
+        if (string.IsNullOrWhiteSpace(model.TriggerName))
+            return "未配置触发器";
+
+        if (model.TriggerName.EndsWith(".Cron.Trigger", StringComparison.OrdinalIgnoreCase))
+            return $"{GetJobDisplayName(model.JobName)}定时触发器";
+
+        return model.TriggerName;
+    }
+
+    private static string GetTriggerTypeDisplayName(ScheduleModel model)
+    {
+        return model.TriggerType switch
+        {
+            TriggerType.Cron => "Cron 定时",
+            TriggerType.Simple => "简单触发",
+            TriggerType.Calendar => "日历触发",
+            TriggerType.Daily => "每日触发",
+            TriggerType.Unknown => string.IsNullOrWhiteSpace(model.TriggerTypeClassName) ? "未知类型" : model.TriggerTypeClassName,
+            _ => model.TriggerType.ToString()
+        };
+    }
+}

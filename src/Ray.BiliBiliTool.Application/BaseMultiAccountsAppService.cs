@@ -9,6 +9,15 @@ public abstract class BaseMultiAccountsAppService(
     CookieStrFactory<BiliCookie> cookieStrFactory
 ) : AppService
 {
+    public Task DoTaskForAccountAsync(
+        BiliCookie cookie,
+        CancellationToken cancellationToken = default
+    )
+    {
+        ArgumentNullException.ThrowIfNull(cookie);
+        return DoTaskAccountAsync(cookie, cancellationToken);
+    }
+
     public override async Task DoTaskAsync(CancellationToken cancellationToken = default)
     {
         logger.LogInformation(

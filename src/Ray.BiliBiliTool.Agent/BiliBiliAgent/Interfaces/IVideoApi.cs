@@ -11,6 +11,17 @@ namespace Ray.BiliBiliTool.Agent.BiliBiliAgent.Interfaces;
 public interface IVideoApi : IBiliBiliApi
 {
     /// <summary>
+    /// 点赞视频
+    /// </summary>
+    [Header("Content-Type", "application/x-www-form-urlencoded")]
+    [Header("Origin", "https://www.bilibili.com")]
+    [HttpPost("/x/web-interface/archive/like")]
+    Task<BiliApiResponse> LikeVideo(
+        [FormContent] LikeVideoRequest request,
+        [Header("Cookie")] string ck
+    );
+
+    /// <summary>
     /// 分享视频
     /// </summary>
     /// <param name="request"></param>
@@ -120,8 +131,15 @@ public interface IVideoWithoutCookieApi : IVideoApi
     [Header("Referer", "https://www.bilibili.com/")]
     [Header("Origin", "https://www.bilibili.com")]
     [HttpGet("/x/web-interface/ranking/region?rid={rid}&day={day}")]
-    [Obsolete]
     Task<BiliApiResponse<List<RankingInfo>>> GetRegionRankingVideos(int rid, int day);
+
+    /// <summary>
+    /// 获取热门视频。
+    /// </summary>
+    [Header("Referer", "https://www.bilibili.com/")]
+    [Header("Origin", "https://www.bilibili.com")]
+    [HttpGet("/x/web-interface/popular?pn={pageNumber}&ps={pageSize}")]
+    Task<BiliApiResponse<Ranking>> GetPopularVideos(int pageNumber = 1, int pageSize = 50);
 
     /// <summary>
     /// 获取排行榜

@@ -17,7 +17,7 @@ namespace BiliAgentTest
             Program.CreateHost(new[] { "--ENVIRONMENT=Development" });
         }
 
-        [Fact]
+        [LiveBilibiliFact]
         public void WebHeartBeat_Normal_Success()
         {
             using var scope = Global.ServiceProviderRoot.CreateScope();

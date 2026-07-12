@@ -107,7 +107,7 @@ public partial class LogsDialog : ComponentBase
         };
     }
 
-    private void ClearDisplay()
+    private void ClearDisplayedLogs()
     {
         _logs.Clear();
         StateHasChanged();

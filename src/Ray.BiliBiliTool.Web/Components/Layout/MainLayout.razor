@@ -1,29 +1,66 @@
-﻿@using Microsoft.AspNetCore.Components.Authorization
 @inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu/>
-    </div>
+<MudThemeProvider Theme="@_theme" @rendermode="InteractiveServer" />
+<MudPopoverProvider @rendermode="InteractiveServer" />
+<MudDialogProvider @rendermode="InteractiveServer" />
+<MudSnackbarProvider @rendermode="InteractiveServer" />
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://github.com/RayWangQvQ/BiliBiliToolPro" target="_blank">About</a>
-            <AuthorizeView>
-                <Authorized>
-                    <a href="/auth/logout" class="nav-link">Log out</a>
-                </Authorized>
-            </AuthorizeView>
-        </div>
+<div class="page shell">
+    <aside class="sidebar">
+        <NavMenu />
+    </aside>
 
-        <article class="content px-4">
+    <main class="workspace" id="main-content">
+        <header class="top-row">
+            <RuntimeStatusIndicator />
+            <div class="top-row__right">
+                <span class="top-row__date">@DateTime.Now.ToString("yyyy.MM.dd")</span>
+                <MudIconButton Icon="@Icons.Material.Outlined.Settings"
+                               Href="/settings"
+                               Size="Size.Small"
+                               Class="top-row__settings"
+                               aria-label="打开设置" />
+            </div>
+        </header>
+
+        <article class="content">
             @Body
         </article>
     </main>
 </div>
 
 <div id="blazor-error-ui">
-    An unhandled error has occurred.
-    <a href="" class="reload">Reload</a>
-    <a class="dismiss">🗙</a>
+    页面运行时出现异常，请刷新后重试。
+    <a href="" class="reload">刷新</a>
+    <a class="dismiss">关闭</a>
 </div>
+
+@code {
+    private readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = "#b8ef3b",
+            PrimaryContrastText = "#111713",
+            Secondary = "#00a8d8",
+            SecondaryContrastText = "#ffffff",
+            Tertiary = "#ef6f99",
+            Background = "#eef2f0",
+            Surface = "#ffffff",
+            DrawerBackground = "#ffffff",
+            AppbarBackground = "#ffffff",
+            TextPrimary = "#151a18",
+            TextSecondary = "#66706b",
+            LinesDefault = "#dfe5e1",
+            ActionDefault = "#53605a",
+            Success = "#168a5b",
+            Warning = "#a76d13",
+            Error = "#cc4b50",
+            Info = "#087f9f"
+        },
+        LayoutProperties = new LayoutProperties
+        {
+            DefaultBorderRadius = "8px"
+        }
+    };
+}

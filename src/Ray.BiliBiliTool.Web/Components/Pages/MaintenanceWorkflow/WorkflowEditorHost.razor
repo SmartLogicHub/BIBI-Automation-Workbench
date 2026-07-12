@@ -1,0 +1,144 @@
+@using Microsoft.JSInterop
+@using Ray.BiliBiliTool.Application.Contracts.MaintenanceWorkflows
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div id="@_elementId" class="workflow-editor-host" aria-label="养号流程画布"></div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string WorkflowKey { get; set; } = "";
+
+    [Parameter]
+    public IReadOnlyList<MaintenanceWorkflowNodeDefinition> Nodes { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<MaintenanceWorkflowStep> Steps { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<MaintenanceWorkflowEdge> Edges { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyDictionary<string, string> RunningStates { get; set; } =
+        new Dictionary<string, string>();
+
+    [Parameter]
+    public double ViewportX { get; set; }
+
+    [Parameter]
+    public double ViewportY { get; set; }
+
+    [Parameter]
+    public double ViewportZoom { get; set; } = 1;
+
+    [Parameter]
+    public int ExternalVersion { get; set; }
+
+    [Parameter]
+    public EventCallback<WorkflowEditorState> Changed { get; set; }
+
+    [Parameter]
+    public EventCallback<string> NodeSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<string> MessageRaised { get; set; }
+
+    private readonly string _elementId = $"workflow-editor-{Guid.NewGuid():N}";
+    private DotNetObjectReference<WorkflowEditorHost>? _reference;
+    private bool _mounted;
+    private int _lastExternalVersion = -1;
+    private string _lastWorkflowKey = "";
+    private string _lastRunningSignature = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var runningSignature = string.Join(
+            '|',
+            RunningStates.OrderBy(item => item.Key).Select(item => $"{item.Key}:{item.Value}"));
+        var shouldRefresh = !_mounted
+            || _lastExternalVersion != ExternalVersion
+            || !string.Equals(_lastWorkflowKey, WorkflowKey, StringComparison.Ordinal)
+            || !string.Equals(_lastRunningSignature, runningSignature, StringComparison.Ordinal);
+        if (!shouldRefresh)
+            return;
+
+        _reference ??= DotNetObjectReference.Create(this);
+        var payload = BuildPayload();
+        if (!_mounted)
+        {
+            await JS.InvokeVoidAsync("bibiWorkflowEditor.mount", _elementId, payload, _reference);
+            _mounted = true;
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("bibiWorkflowEditor.update", _elementId, payload);
+        }
+
+        _lastExternalVersion = ExternalVersion;
+        _lastWorkflowKey = WorkflowKey;
+        _lastRunningSignature = runningSignature;
+    }
+
+    [JSInvokable]
+    public async Task HandleEditorChanged(WorkflowEditorState state)
+    {
+        await Changed.InvokeAsync(state);
+    }
+
+    [JSInvokable]
+    public async Task HandleNodeSelected(string stepId)
+    {
+        await NodeSelected.InvokeAsync(stepId ?? "");
+    }
+
+    [JSInvokable]
+    public async Task HandleEditorMessage(string message)
+    {
+        await MessageRaised.InvokeAsync(message ?? "");
+    }
+
+    private object BuildPayload()
+    {
+        return new
+        {
+            workflowKey = WorkflowKey,
+            nodes = Nodes,
+            steps = Steps,
+            edges = Edges,
+            viewportX = ViewportX,
+            viewportY = ViewportY,
+            viewportZoom = ViewportZoom,
+            runningStates = RunningStates,
+            externalVersion = ExternalVersion
+        };
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_mounted)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("bibiWorkflowEditor.unmount", _elementId);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+
+        _reference?.Dispose();
+    }
+
+    public sealed class WorkflowEditorState
+    {
+        public List<MaintenanceWorkflowStep> Steps { get; set; } = [];
+
+        public List<MaintenanceWorkflowEdge> Edges { get; set; } = [];
+
+        public double ViewportX { get; set; }
+
+        public double ViewportY { get; set; }
+
+        public double ViewportZoom { get; set; } = 1;
+    }
+}

@@ -42,10 +42,42 @@ public class VideoDomainService(
     /// <returns></returns>
     public async Task<RankingInfo> GetRandomVideoOfRanking()
     {
-        var apiResponse = await videoWithoutCookieApi.GetRegionRankingVideosV2();
-        logger.LogDebug("获取排行榜成功");
-        var data = apiResponse.Data.List[new Random().Next(apiResponse.Data.List.Count)];
-        return data;
+        var failures = new List<string>();
+        try
+        {
+            var popular = await videoWithoutCookieApi.GetPopularVideos();
+            if (popular.Code == 0 && popular.Data?.List.Count > 0)
+            {
+                logger.LogDebug("获取热门视频成功");
+                return popular.Data.List[Random.Shared.Next(popular.Data.List.Count)];
+            }
+
+            failures.Add($"热门视频：{popular.Code} {popular.Message}");
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"热门视频：{ex.Message}");
+        }
+
+        try
+        {
+            var ranking = await videoWithoutCookieApi.GetRegionRankingVideos(1, 3);
+            if (ranking.Code == 0 && ranking.Data?.Count > 0)
+            {
+                logger.LogDebug("获取分区排行成功");
+                return ranking.Data[Random.Shared.Next(ranking.Data.Count)];
+            }
+
+            failures.Add($"分区排行：{ranking.Code} {ranking.Message}");
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"分区排行：{ex.Message}");
+        }
+
+        throw new InvalidOperationException(
+            $"暂时无法获取可观看视频。{string.Join("；", failures)}"
+        );
     }
 
     public async Task<UpVideoInfo?> GetRandomVideoOfUp(long upId, int total, BiliCookie ck)
@@ -60,14 +92,17 @@ public class VideoDomainService(
             pn = new Random().Next(1, total + 1),
         };
 
-        BiliApiResponse<SearchUpVideosResponse> re = await videoApi.SearchVideosByUpId(
+        BiliApiResponse<SearchUpVideosResponse>? re = await videoApi.SearchVideosByUpId(
             req,
-            ck.ToString()
+            ck?.ToString() ?? string.Empty
         );
+
+        if (re is null)
+            throw new InvalidOperationException("B站未返回 UP 主视频数据。");
 
         if (re.Code != 0)
         {
-            throw new Exception(re.Message);
+            throw new InvalidOperationException(re.Message);
         }
 
         return re.Data?.List?.Vlist.FirstOrDefault();
@@ -82,16 +117,19 @@ public class VideoDomainService(
     {
         var req = new SearchVideosByUpIdDto() { mid = upId };
 
-        BiliApiResponse<SearchUpVideosResponse> re = await videoApi.SearchVideosByUpId(
+        BiliApiResponse<SearchUpVideosResponse>? re = await videoApi.SearchVideosByUpId(
             req,
-            ck.ToString()
+            ck?.ToString() ?? string.Empty
         );
+        if (re is null)
+            throw new InvalidOperationException("B站未返回 UP 主视频数据。");
+
         if (re.Code != 0)
         {
-            throw new Exception(re.Message);
+            throw new InvalidOperationException(re.Message);
         }
 
-        return re.Data!.Page.Count;
+        return re.Data?.Page?.Count ?? 0;
     }
 
     public async Task WatchAndShareVideo(DailyTaskInfo dailyTaskStatus, BiliCookie ck)
@@ -142,13 +180,22 @@ public class VideoDomainService(
     /// </summary>
     public async Task WatchVideo(VideoInfoDto videoInfo, BiliCookie ck)
     {
+        _ = await WatchVideoWithReceipt(videoInfo, ck);
+    }
+
+    public async Task<VideoActionReceipt> WatchVideoWithReceipt(
+        VideoInfoDto videoInfo,
+        BiliCookie ck
+    )
+    {
         //开始上报一次
-        await OpenVideo(videoInfo, ck);
+        if (!await OpenVideo(videoInfo, ck))
+            throw new InvalidOperationException("视频打开失败，平台没有确认播放开始。");
 
         //结束上报一次
         videoInfo.Duration = videoInfo.Duration ?? 15;
-        int max = videoInfo.Duration < 15 ? videoInfo.Duration.Value : 15;
-        int playedTime = new Random().Next(1, max);
+        var max = Math.Max(1, Math.Min(videoInfo.Duration.Value, 15));
+        var playedTime = max == 1 ? 1 : Random.Shared.Next(1, max + 1);
 
         var request = new UploadVideoHeartbeatRequest
         {
@@ -164,19 +211,39 @@ public class VideoDomainService(
         };
         BiliApiResponse apiResponse = await videoApi.UploadVideoHeartbeat(request, ck.ToString());
 
-        if (apiResponse.Code == 0)
-        {
-            _expDic.TryGetValue("每日观看视频", out int exp);
-            logger.LogInformation(
-                "视频播放成功，已观看到第{playedTime}秒，经验+{exp} √",
-                playedTime,
-                exp
-            );
-        }
-        else
-        {
-            logger.LogError("视频播放失败，原因：{msg}", apiResponse.Message);
-        }
+        if (apiResponse.Code != 0)
+            throw new InvalidOperationException($"视频播放失败：{apiResponse.Message}");
+
+        _expDic.TryGetValue("每日观看视频", out int exp);
+        logger.LogInformation(
+            "视频播放成功，已观看到第{playedTime}秒，经验+{exp} √",
+            playedTime,
+            exp
+        );
+        return VideoActionReceipt.PlatformConfirmed(
+            playedTime,
+            "秒",
+            apiResponse.Message ?? "平台已确认播放进度"
+        );
+    }
+
+    public async Task LikeVideo(VideoInfoDto videoInfo, BiliCookie ck)
+    {
+        _ = await LikeVideoWithReceipt(videoInfo, ck);
+    }
+
+    public async Task<VideoActionReceipt> LikeVideoWithReceipt(
+        VideoInfoDto videoInfo,
+        BiliCookie ck
+    )
+    {
+        var request = new LikeVideoRequest(long.Parse(videoInfo.Aid), ck.BiliJct);
+        var response = await videoApi.LikeVideo(request, ck.ToString());
+        if (response.Code != 0)
+            throw new InvalidOperationException($"视频点赞失败：{response.Message}");
+
+        logger.LogInformation("视频点赞成功 √");
+        return VideoActionReceipt.PlatformConfirmed(message: response.Message ?? "平台已确认点赞");
     }
 
     /// <summary>
@@ -185,18 +252,25 @@ public class VideoDomainService(
     /// <param name="videoInfo">视频</param>
     public async Task ShareVideo(VideoInfoDto videoInfo, BiliCookie ck)
     {
+        _ = await ShareVideoWithReceipt(videoInfo, ck);
+    }
+
+    public async Task<VideoActionReceipt> ShareVideoWithReceipt(
+        VideoInfoDto videoInfo,
+        BiliCookie ck
+    )
+    {
         var request = new ShareVideoRequest(long.Parse(videoInfo.Aid), ck.BiliJct);
         BiliApiResponse apiResponse = await videoApi.ShareVideo(request, ck.ToString());
 
-        if (apiResponse.Code == 0)
-        {
-            _expDic.TryGetValue("每日观看视频", out int exp);
-            logger.LogInformation("视频分享成功，经验+{exp} √", exp);
-        }
-        else
-        {
-            logger.LogError("视频分享失败，原因: {msg}", apiResponse.Message);
-        }
+        if (apiResponse.Code != 0)
+            throw new InvalidOperationException($"视频分享失败：{apiResponse.Message}");
+
+        _expDic.TryGetValue("每日观看视频", out int exp);
+        logger.LogInformation("视频分享成功，经验+{exp} √", exp);
+        return VideoActionReceipt.PlatformConfirmed(
+            message: apiResponse.Message ?? "平台已确认分享"
+        );
     }
 
     /// <summary>

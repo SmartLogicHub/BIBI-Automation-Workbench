@@ -1,7 +1,4 @@
-@page "/Configurations/Silver2CoinTaskConfig"
-@using Microsoft.AspNetCore.Authorization
 @using Ray.BiliBiliTool.Config.Options;
-@attribute [Authorize]
 @rendermode InteractiveServer
 @inherits BaseConfigComponent<Silver2CoinTaskOptions>
 
@@ -58,8 +55,3 @@
         }
     }
 </MudContainer>
-
-<MudThemeProvider/>
-<MudPopoverProvider/>
-<MudDialogProvider/>
-<MudSnackbarProvider/>

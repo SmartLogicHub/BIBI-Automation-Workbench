@@ -55,7 +55,7 @@ public abstract class BaseConfigComponent<T> : ComponentBase
         }
         catch (Exception ex)
         {
-            _saveMessage = new MarkupString($"Failed to load configuration: {ex.Message}");
+            _saveMessage = new MarkupString($"配置加载失败：{ex.Message}");
             _saveSuccess = false;
         }
         finally
@@ -78,7 +78,7 @@ public abstract class BaseConfigComponent<T> : ComponentBase
             var sqliteProvider = GetSqliteConfigurationProvider();
             if (sqliteProvider == null)
             {
-                throw new InvalidOperationException("Unable to get SqliteConfigurationProvider");
+                throw new InvalidOperationException("无法获取本地 SQLite 配置提供器");
             }
 
             var configValues = _config.ToConfigDictionary();
@@ -100,7 +100,7 @@ public abstract class BaseConfigComponent<T> : ComponentBase
         }
         catch (Exception ex)
         {
-            _saveMessage = new MarkupString($"Failed to save configuration: {ex.Message}");
+            _saveMessage = new MarkupString($"配置保存失败：{ex.Message}");
             _saveSuccess = false;
         }
         finally
@@ -161,13 +161,11 @@ public abstract class BaseConfigComponent<T> : ComponentBase
         var jobKey = GetJobKey();
         if (jobKey == null)
         {
-            return new MarkupString("Configuration saved successfully!");
+            return new MarkupString("配置已保存。");
         }
 
-        var status = _config.IsEnable ? "enabled" : "disabled";
-        return new MarkupString(
-            $"Configuration saved successfully!<br/>{jobKey} has been {status}."
-        );
+        var status = _config.IsEnable ? "已启用" : "已停用";
+        return new MarkupString($"配置已保存。<br/>{jobKey} {status}。");
     }
 
     private SqliteConfigurationProvider? GetSqliteConfigurationProvider()

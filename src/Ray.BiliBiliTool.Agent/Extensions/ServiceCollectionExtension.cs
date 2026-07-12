@@ -67,6 +67,7 @@ public static class ServiceCollectionExtension
         services.AddBiliBiliClientApi<IChargeApi>(BiliHosts.Api, config);
         services.AddBiliBiliClientApi<IVideoApi>(BiliHosts.Api, config);
         services.AddBiliBiliClientApi<IVideoWithoutCookieApi>(BiliHosts.Api, config);
+        services.AddBiliBiliClientApi<ISearchApi>(BiliHosts.Api, config);
         services.AddBiliBiliClientApi<IArticleApi>(BiliHosts.Api, config);
 
         services.AddBiliBiliClientApi<IVipMallApi>(BiliHosts.Show, config);

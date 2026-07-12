@@ -1,7 +1,4 @@
-@page "/Configurations/MangaTaskConfig"
-@using Microsoft.AspNetCore.Authorization
 @using Ray.BiliBiliTool.Config.Options;
-@attribute [Authorize]
 @rendermode InteractiveServer
 @inherits BaseConfigComponent<MangaTaskOptions>
 
@@ -82,8 +79,3 @@
         }
     }
 </MudContainer>
-
-<MudThemeProvider/>
-<MudPopoverProvider/>
-<MudDialogProvider/>
-<MudSnackbarProvider/>

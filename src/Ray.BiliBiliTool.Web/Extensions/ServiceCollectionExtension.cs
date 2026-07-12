@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Components.Authorization;
+using MudBlazor;
 using Ray.BiliBiliTool.Web.Auth;
 using Ray.BiliBiliTool.Web.Services;
 
@@ -10,6 +11,10 @@ public static class ServiceCollectionExtension
     public static IServiceCollection AddWebServices(this IServiceCollection services)
     {
         services.AddScoped<IAuthService, AuthService>();
+        services.AddSingleton<IWebAuditLog, FileWebAuditLog>();
+        services.AddScoped<IDataMaintenanceService, DataMaintenanceService>();
+        services.AddHostedService<ContentExecutorHostedService>();
+        services.AddTransient<MudLocalizer, ChineseMudLocalizer>();
 
         return services;
     }

@@ -17,7 +17,7 @@ public class VideoApiTest
         Program.CreateHost(new[] { "--ENVIRONMENT=Development" });
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public void GetLiveWalletStatus_Normal_Success()
     {
         using var scope = Global.ServiceProviderRoot.CreateScope();
@@ -38,7 +38,7 @@ public class VideoApiTest
         }
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task GetBangumiTest()
     {
         using var scope = Global.ServiceProviderRoot.CreateScope();
@@ -50,7 +50,7 @@ public class VideoApiTest
         Assert.Equal(0, req.Code);
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task GetRandomVideoOfRanking()
     {
         using var scope = Global.ServiceProviderRoot.CreateScope();

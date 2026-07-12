@@ -1,0 +1,351 @@
+@using Ray.BiliBiliTool.Application.Contracts.MaintenanceWorkflows
+
+<section class="workflow-run-log">
+    @if (CurrentRun is null)
+    {
+        <div class="workflow-config-empty">
+            <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" />
+            <strong>尚未运行</strong>
+            <span>流程运行后，这里会显示每个动作和平台确认结果。</span>
+        </div>
+    }
+    else
+    {
+        <div class="workflow-run-summary">
+            <span>状态：@StatusText(CurrentRun.Status)</span>
+            <span>成功 @CurrentRun.SuccessCount</span>
+            <span>失败 @CurrentRun.FailedCount</span>
+            <span>跳过 @CurrentRun.SkippedCount</span>
+        </div>
+
+        @if (CurrentRun.DryRun)
+        {
+            <div class="workflow-run-notice" role="status">
+                <MudIcon Icon="@Icons.Material.Outlined.Science" Size="Size.Small" />
+                <span>本次为测试运行，没有执行真实账号操作。</span>
+            </div>
+        }
+
+        @if (CurrentRun.AccountSnapshots.Count > 0)
+        {
+            <section class="workflow-snapshots">
+                <header>
+                    <strong>账号前后状态</strong>
+                    <span>数据来自运行前后的站内读取</span>
+                </header>
+                @foreach (var uid in SnapshotAccountIds(CurrentRun))
+                {
+                    var before = Snapshot(CurrentRun, uid, "before");
+                    var after = Snapshot(CurrentRun, uid, "after");
+                    var latest = after ?? before;
+                    <article class="workflow-snapshot">
+                        <div class="workflow-snapshot__heading">
+                            <div>
+                                <strong>@SnapshotName(latest)</strong>
+                                <span>UID @uid</span>
+                            </div>
+                            <span class="workflow-snapshot__state @(after?.Available == true ? "is-read" : "")">
+                                @(after?.Available == true ? "运行后已回读" : before?.Available == true ? "运行前已回读" : "读取不完整")
+                            </span>
+                        </div>
+                        <dl class="workflow-snapshot__facts">
+                            <div>
+                                <dt>等级 / 经验</dt>
+                                <dd>@LevelExperienceChange(before, after)</dd>
+                            </div>
+                            <div>
+                                <dt>硬币余额</dt>
+                                <dd>@DecimalChange(before?.CoinBalance, after?.CoinBalance)</dd>
+                            </div>
+                            <div>
+                                <dt>关注数</dt>
+                                <dd>@IntegerChange(before?.FollowingCount, after?.FollowingCount)</dd>
+                            </div>
+                            <div>
+                                <dt>每日任务</dt>
+                                <dd>@DailyTaskSummary(after ?? before)</dd>
+                            </div>
+                        </dl>
+                        @if (!string.IsNullOrWhiteSpace(SnapshotError(before, after)))
+                        {
+                            <p class="workflow-snapshot__warning">@SnapshotError(before, after)</p>
+                        }
+                    </article>
+                }
+            </section>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(CurrentRun.FailureReason))
+        {
+            <div class="workflow-run-alert" role="status">@CurrentRun.FailureReason</div>
+        }
+
+        <div class="workflow-run-lines">
+            @foreach (var log in CurrentRun.StepLogs)
+            {
+                <div class="workflow-run-line">
+                    <span>@StatusText(log.Status)</span>
+                    <strong>@log.DisplayName</strong>
+                    <p>@DisplayLogMessage(log)</p>
+                    @if (log.Evidence.Count > 0)
+                    {
+                        <div class="workflow-evidence-list">
+                            @foreach (var evidence in log.Evidence.OrderByDescending(item => item.OccurredAt))
+                            {
+                                <div class="workflow-evidence-row @EvidenceClass(evidence)">
+                                    <span class="workflow-evidence-row__icon" aria-hidden="true">
+                                        <MudIcon Icon="@EvidenceIcon(evidence)" Size="Size.Small" />
+                                    </span>
+                                    <div>
+                                        <div class="workflow-evidence-row__heading">
+                                            <strong>@evidence.Action</strong>
+                                            <span class="workflow-evidence-state">@EvidenceState(evidence)</span>
+                                        </div>
+                                        <span>账号 UID @evidence.AccountUid · @FormatTime(evidence.OccurredAt)</span>
+                                        @if (!string.IsNullOrWhiteSpace(evidence.TargetTitle))
+                                        {
+                                            @if (!string.IsNullOrWhiteSpace(evidence.TargetUrl))
+                                            {
+                                                <a href="@evidence.TargetUrl" target="_blank" rel="noopener noreferrer">
+                                                    @evidence.TargetTitle
+                                                    <MudIcon Icon="@Icons.Material.Outlined.OpenInNew" Size="Size.Small" />
+                                                </a>
+                                            }
+                                            else
+                                            {
+                                                <span>@evidence.TargetTitle</span>
+                                            }
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(EvidenceQuantity(evidence)))
+                                        {
+                                            <small>实际完成：@EvidenceQuantity(evidence)</small>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(EvidenceDetail(evidence)))
+                                        {
+                                            <small>@EvidenceDetail(evidence)</small>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(EvidencePlatformMessage(evidence)))
+                                        {
+                                            <small class="workflow-evidence-platform">@EvidencePlatformMessage(evidence)</small>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (DeleteRun.HasDelegate || ClearHistory.HasDelegate)
+        {
+            <div class="workflow-run-actions">
+                @if (DeleteRun.HasDelegate)
+                {
+                    <MudButton Variant="Variant.Text"
+                               Color="Color.Error"
+                               StartIcon="@Icons.Material.Outlined.Delete"
+                               Disabled="@IsActive(CurrentRun.Status)"
+                               aria-label="删除本条运行记录"
+                               OnClick="@(() => DeleteRun.InvokeAsync(CurrentRun))">
+                        删除本条
+                    </MudButton>
+                }
+                @if (ClearHistory.HasDelegate)
+                {
+                    <MudButton Variant="Variant.Text"
+                               Color="Color.Error"
+                               Disabled="@IsActive(CurrentRun.Status)"
+                               aria-label="清空该流程运行记录"
+                               OnClick="@(() => ClearHistory.InvokeAsync(CurrentRun.WorkflowId))">
+                        清空该流程记录
+                    </MudButton>
+                }
+            </div>
+        }
+    }
+</section>
+
+@code {
+    [Parameter]
+    public MaintenanceWorkflowRunRecord? CurrentRun { get; set; }
+
+    [Parameter]
+    public EventCallback<MaintenanceWorkflowRunRecord> DeleteRun { get; set; }
+
+    [Parameter]
+    public EventCallback<string> ClearHistory { get; set; }
+
+    private static bool IsActive(MaintenanceWorkflowRunStatus status) =>
+        status is MaintenanceWorkflowRunStatus.Running or MaintenanceWorkflowRunStatus.WaitingManualConfirm;
+
+    private static string FormatTime(DateTimeOffset value) =>
+        value == default ? "时间未知" : value.LocalDateTime.ToString("MM-dd HH:mm:ss");
+
+    private static bool IsPlatformConfirmed(MaintenanceWorkflowActionEvidence evidence) =>
+        evidence.Outcome.Equals("platform_confirmed", StringComparison.OrdinalIgnoreCase)
+        && evidence.PlatformCode == 0;
+
+    private static string EvidenceClass(MaintenanceWorkflowActionEvidence evidence)
+    {
+        if (IsPlatformConfirmed(evidence))
+            return "is-confirmed";
+        if (evidence.Outcome.Equals("submitted", StringComparison.OrdinalIgnoreCase))
+            return "is-pending";
+        if (evidence.Outcome.Equals("failed", StringComparison.OrdinalIgnoreCase)
+            || evidence.Outcome.Equals("error", StringComparison.OrdinalIgnoreCase)
+            || evidence.PlatformCode is not null and not 0)
+            return "is-failed";
+        return "is-legacy";
+    }
+
+    private static string EvidenceIcon(MaintenanceWorkflowActionEvidence evidence) =>
+        EvidenceClass(evidence) switch
+        {
+            "is-confirmed" => Icons.Material.Outlined.Verified,
+            "is-pending" => Icons.Material.Outlined.Schedule,
+            "is-failed" => Icons.Material.Outlined.ErrorOutline,
+            _ => Icons.Material.Outlined.History
+        };
+
+    private static string EvidenceState(MaintenanceWorkflowActionEvidence evidence) =>
+        EvidenceClass(evidence) switch
+        {
+            "is-confirmed" => "平台已确认",
+            "is-pending" => "已发起，待核验",
+            "is-failed" => "未完成",
+            _ => "历史记录无回执"
+        };
+
+    private static string EvidenceQuantity(MaintenanceWorkflowActionEvidence evidence) =>
+        evidence.Quantity > 0 && !string.IsNullOrWhiteSpace(evidence.Unit)
+            ? $"{evidence.Quantity}{evidence.Unit}"
+            : "";
+
+    private static string EvidenceDetail(MaintenanceWorkflowActionEvidence evidence)
+    {
+        var quantity = EvidenceQuantity(evidence);
+        if (IsPlatformConfirmed(evidence)
+            && !string.IsNullOrWhiteSpace(quantity)
+            && evidence.Detail.Equals($"平台已确认完成，实际 {quantity}", StringComparison.Ordinal))
+        {
+            return "";
+        }
+        return evidence.Detail;
+    }
+
+    private static string EvidencePlatformMessage(MaintenanceWorkflowActionEvidence evidence)
+    {
+        if (!string.IsNullOrWhiteSpace(evidence.PlatformMessage))
+            return evidence.PlatformCode is null
+                ? evidence.PlatformMessage
+                : $"平台返回 {evidence.PlatformCode}：{evidence.PlatformMessage}";
+        return evidence.PlatformCode is null ? "" : $"平台返回 {evidence.PlatformCode}";
+    }
+
+    private static IEnumerable<string> SnapshotAccountIds(MaintenanceWorkflowRunRecord run) =>
+        run.AccountSnapshots
+            .Where(item => !string.IsNullOrWhiteSpace(item.AccountUid))
+            .Select(item => item.AccountUid)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    private static MaintenanceWorkflowAccountSnapshot? Snapshot(
+        MaintenanceWorkflowRunRecord run,
+        string accountUid,
+        string phase) =>
+        run.AccountSnapshots
+            .Where(item => item.AccountUid.Equals(accountUid, StringComparison.OrdinalIgnoreCase)
+                && item.Phase.Equals(phase, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(item => item.CapturedAt)
+            .FirstOrDefault();
+
+    private static string SnapshotName(MaintenanceWorkflowAccountSnapshot? snapshot) =>
+        snapshot is null || string.IsNullOrWhiteSpace(snapshot.AccountName)
+            ? "账号状态"
+            : snapshot.AccountName;
+
+    private static string LevelExperienceChange(
+        MaintenanceWorkflowAccountSnapshot? before,
+        MaintenanceWorkflowAccountSnapshot? after)
+    {
+        if (before is null && after is null)
+            return "未读取";
+        if (before is null)
+            return $"Lv{after!.Level} · {after.Experience}";
+        if (after is null)
+            return $"Lv{before.Level} · {before.Experience}";
+        var delta = after.Experience - before.Experience;
+        return $"Lv{before.Level} {before.Experience} → Lv{after.Level} {after.Experience}{DeltaText(delta)}";
+    }
+
+    private static string DecimalChange(decimal? before, decimal? after)
+    {
+        if (before is null && after is null)
+            return "未读取";
+        if (before is null)
+            return after!.Value.ToString("0.##");
+        if (after is null)
+            return before.Value.ToString("0.##");
+        return $"{before:0.##} → {after:0.##}{DeltaText(after.Value - before.Value)}";
+    }
+
+    private static string IntegerChange(int? before, int? after)
+    {
+        if (before is null && after is null)
+            return "未读取";
+        if (before is null)
+            return after!.Value.ToString();
+        if (after is null)
+            return before.Value.ToString();
+        return $"{before} → {after}{DeltaText(after.Value - before.Value)}";
+    }
+
+    private static string DeltaText(decimal value) =>
+        value == 0 ? "" : value > 0 ? $"（+{value:0.##}）" : $"（{value:0.##}）";
+
+    private static string DailyTaskSummary(MaintenanceWorkflowAccountSnapshot? snapshot)
+    {
+        if (snapshot is null)
+            return "未读取";
+        var completed = new List<string>();
+        if (snapshot.DailyLoginCompleted) completed.Add("登录");
+        if (snapshot.DailyWatchCompleted) completed.Add("观看");
+        if (snapshot.DailyShareCompleted) completed.Add("分享");
+        if (snapshot.DailyCoinExperience > 0) completed.Add($"投币经验 {snapshot.DailyCoinExperience}");
+        return completed.Count == 0 ? "尚无完成项" : string.Join("、", completed);
+    }
+
+    private static string SnapshotError(
+        MaintenanceWorkflowAccountSnapshot? before,
+        MaintenanceWorkflowAccountSnapshot? after) =>
+        string.Join("；", new[] { before?.ErrorMessage, after?.ErrorMessage }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.Ordinal));
+
+    private static string DisplayLogMessage(MaintenanceWorkflowStepLog log)
+    {
+        var hasEvidence = log.Evidence.Count > 0;
+        var hasStructuredConfirmation = log.Evidence.Any(IsPlatformConfirmed);
+        if (hasEvidence
+            && !hasStructuredConfirmation
+            && log.Message.Contains("平台均已确认", StringComparison.Ordinal))
+        {
+            return "动作已执行，但这条历史记录没有保存可核验的平台回执。";
+        }
+        return log.Message;
+    }
+
+    private static string StatusText(object status)
+    {
+        return status.ToString() switch
+        {
+            nameof(MaintenanceWorkflowRunStatus.Completed) or nameof(MaintenanceWorkflowStepStatus.Success) => "完成",
+            nameof(MaintenanceWorkflowRunStatus.Failed) or nameof(MaintenanceWorkflowStepStatus.Failed) => "失败",
+            nameof(MaintenanceWorkflowRunStatus.Running) or nameof(MaintenanceWorkflowStepStatus.Running) => "运行中",
+            nameof(MaintenanceWorkflowRunStatus.WaitingManualConfirm) or nameof(MaintenanceWorkflowStepStatus.WaitingManualConfirm) => "等待确认",
+            nameof(MaintenanceWorkflowRunStatus.Cancelled) or nameof(MaintenanceWorkflowStepStatus.Cancelled) => "已取消",
+            nameof(MaintenanceWorkflowRunStatus.Skipped) or nameof(MaintenanceWorkflowStepStatus.Skipped) => "跳过",
+            _ => status.ToString() ?? ""
+        };
+    }
+}

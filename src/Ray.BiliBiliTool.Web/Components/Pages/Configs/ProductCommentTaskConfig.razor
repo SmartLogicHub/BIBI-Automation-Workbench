@@ -1,0 +1,195 @@
+@using Ray.BiliBiliTool.Config.Options
+@rendermode InteractiveServer
+@inherits BaseConfigComponent<ProductCommentTaskOptions>
+
+<PageTitle>内容评论任务配置</PageTitle>
+
+<section class="bibi-page">
+    <header class="bibi-page-header">
+        <div>
+            <p class="bibi-eyebrow">高级配置</p>
+            <h1 class="bibi-title">内容评论任务配置</h1>
+            <p class="bibi-subtitle">这里保留旧 ProductComment 任务的干跑配置。自动发布开关被固定关闭，避免绕过 Web 总控台的受控执行流程。</p>
+        </div>
+        <div class="bibi-actions">
+            <MudButton Href="/AutomationConfigAudit"
+                       Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.ArrowBack">
+                返回配置与审计
+            </MudButton>
+        </div>
+    </header>
+
+    @if (_isLoading)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+    }
+    else
+    {
+        <EditForm Model="@_config" OnValidSubmit="HandleValidSubmitAsync">
+            <DataAnnotationsValidator />
+
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">
+                此任务强制使用演练模式，不会直接发布评论。
+            </MudAlert>
+
+            <MudTabs Elevation="0" Rounded="false" PanelClass="pt-3">
+                <MudTabPanel Text="基础">
+                    <section class="bibi-panel">
+                        <div class="bibi-panel__body">
+                            <MudGrid>
+                                <MudItem xs="12" md="6">
+                                    <MudSwitch T="bool" @bind-Value="_config.IsEnable"
+                                               Label="启用任务"
+                                               Color="Color.Primary" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField T="string" @bind-Value="_config.Cron"
+                                                  Label="Cron 表达式"
+                                                  Disabled="!_config.IsEnable" />
+                                </MudItem>
+                                <MudItem xs="12" md="4">
+                                    <MudSwitch T="bool" Value="@true"
+                                               Label="演练模式"
+                                               Color="Color.Info"
+                                               Disabled="true" />
+                                </MudItem>
+                                <MudItem xs="12" md="4">
+                                    <MudSwitch T="bool" Value="@false"
+                                               Label="自动发布"
+                                               Color="Color.Default"
+                                               Disabled="true" />
+                                </MudItem>
+                                <MudItem xs="12" md="4">
+                                    <MudTextField T="string" Value="@("DryRun")"
+                                                  Label="发布模式"
+                                                  Disabled="true" />
+                                </MudItem>
+                            </MudGrid>
+                        </div>
+                    </section>
+                </MudTabPanel>
+
+                <MudTabPanel Text="搜索">
+                    <section class="bibi-panel">
+                        <div class="bibi-panel__body">
+                            <MudGrid>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField T="string" @bind-Value="_keywordsText"
+                                                  Label="关键词"
+                                                  Lines="6"
+                                                  Placeholder="每行一个关键词" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudSelect T="string" @bind-Value="_config.SearchOrder" Label="搜索排序">
+                                        <MudSelectItem Value="@("pubdate")">按发布时间</MudSelectItem>
+                                        <MudSelectItem Value="@("totalrank")">按综合排序</MudSelectItem>
+                                        <MudSelectItem Value="@("click")">按播放量</MudSelectItem>
+                                    </MudSelect>
+                                    <MudNumericField T="int" @bind-Value="_config.MaxSearchPagesPerKeyword"
+                                                     Label="每个关键词最大页数"
+                                                     Min="1"
+                                                     Class="mt-3" />
+                                    <MudNumericField T="int" @bind-Value="_config.MaxVideosPerKeyword"
+                                                     Label="每个关键词最大视频数"
+                                                     Min="1"
+                                                     Class="mt-3" />
+                                    <MudNumericField T="int" @bind-Value="_config.MaxCandidatesPerRun"
+                                                     Label="每次最大候选数"
+                                                     Min="0"
+                                                     Class="mt-3" />
+                                </MudItem>
+                            </MudGrid>
+                        </div>
+                    </section>
+                </MudTabPanel>
+
+                <MudTabPanel Text="评论模板">
+                    <section class="bibi-panel">
+                        <div class="bibi-panel__body">
+                            <MudTextField T="string" @bind-Value="_templatesText"
+                                          Label="评论模板"
+                                          Lines="8"
+                                          Placeholder="每行一个模板，可使用 {产品名} 占位符" />
+                        </div>
+                    </section>
+                </MudTabPanel>
+
+                <MudTabPanel Text="限制">
+                    <section class="bibi-panel">
+                        <div class="bibi-panel__body">
+                            <MudGrid>
+                                <MudItem xs="12" md="4">
+                                    <MudNumericField T="int" @bind-Value="_config.MaxPublishPerRun"
+                                                     Label="每次最大规划数"
+                                                     Min="0" />
+                                </MudItem>
+                                <MudItem xs="12" md="4">
+                                    <MudNumericField T="int" @bind-Value="_config.MaxDailyCommentsPerAccount"
+                                                     Label="单账号每日上限"
+                                                     Min="0" />
+                                </MudItem>
+                                <MudItem xs="12" md="4">
+                                    <MudNumericField T="int" @bind-Value="_config.AccountCooldownMinutes"
+                                                     Label="账号冷却分钟"
+                                                     Min="0" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudNumericField T="int" @bind-Value="_config.CommentIntervalMinSeconds"
+                                                     Label="最小间隔秒数"
+                                                     Min="0" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudNumericField T="int" @bind-Value="_config.CommentIntervalMaxSeconds"
+                                                     Label="最大间隔秒数"
+                                                     Min="0" />
+                                </MudItem>
+                            </MudGrid>
+                        </div>
+                    </section>
+                </MudTabPanel>
+
+                <MudTabPanel Text="存储">
+                    <section class="bibi-panel">
+                        <div class="bibi-panel__body">
+                            <MudTextField T="string" @bind-Value="_config.StoragePath"
+                                          Label="存储路径" />
+                            <MudSwitch T="bool" @bind-Value="_config.SkipAlreadyProcessedBvid"
+                                       Label="跳过已处理 BV 号"
+                                       Color="Color.Primary"
+                                       Class="mt-3" />
+                            <MudSwitch T="bool" @bind-Value="_config.SkipCommentedBvid"
+                                       Label="跳过已评论 BV 号"
+                                       Color="Color.Primary"
+                                       Class="mt-3" />
+                        </div>
+                    </section>
+                </MudTabPanel>
+            </MudTabs>
+
+            <section class="bibi-panel bibi-panel--flat mt-3">
+                <div class="bibi-panel__body">
+                    <MudButton ButtonType="ButtonType.Submit"
+                               Variant="Variant.Filled"
+                               Color="Color.Primary">
+                        保存配置
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Secondary"
+                               OnClick="ReloadConfigAsync"
+                               Class="ml-2">
+                        重新加载
+                    </MudButton>
+                </div>
+            </section>
+        </EditForm>
+
+        @if (_saveMessage.HasValue)
+        {
+            <MudAlert Severity="@(_saveSuccess ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Class="mt-3">
+                @_saveMessage
+            </MudAlert>
+        }
+    }
+</section>

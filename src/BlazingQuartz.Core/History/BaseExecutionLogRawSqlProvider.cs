@@ -6,6 +6,6 @@ namespace BlazingQuartz.Core.History
     {
         public virtual string DeleteLogsByDays { get; } =
             @"DELETE FROM bili_execution_logs
-WHERE date_added_utc < {0}";
+WHERE DateAddedUtc < {0}";
     }
 }

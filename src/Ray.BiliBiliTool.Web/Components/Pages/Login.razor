@@ -1,34 +1,20 @@
-@page "/login"
 @rendermode InteractiveServer
+@inject NavigationManager Navigation
 
-@if (_loginError)
-{
-    <MudAlert Severity="Severity.Error" Elevation="0" Class="mx-auto my-4" Style="max-width: 500px;">
-        Incorrect username or password. Please try again.
+<PageTitle>本地模式</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="my-6">
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        当前 Web 总控台采用本地模式，不需要系统账号密码登录，正在返回总览。
     </MudAlert>
+</MudContainer>
+
+@code {
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Navigation.NavigateTo("/", replace: true);
+        }
+    }
 }
-
-<form action="/auth/login" method="post">
-    <input type="hidden" name="returnUrl" value="@returnUrl" />
-
-    <MudCard Class="mx-auto my-4" Style="max-width: 500px;">
-        <MudCardHeader>
-            <MudText Typo="Typo.h5">Log in</MudText>
-        </MudCardHeader>
-        <MudCardContent>
-            <MudTextField @bind-Value="_username" Name="username" Label="User Name" Required="true" RequiredError="Username cannot be empty" />
-            <MudTextField @bind-Value="_password" Name="password" Label="Password" Required="true" RequiredError="Password cannot be empty"
-                          InputType="@_passwordInput" Adornment="Adornment.End"
-                          AdornmentIcon="@_passwordInputIcon" OnAdornmentClick="TogglePasswordVisibility" />
-        </MudCardContent>
-        <MudCardActions>
-            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
-                       Class="ml-auto">Log in</MudButton>
-        </MudCardActions>
-    </MudCard>
-</form>
-
-<MudThemeProvider/>
-<MudPopoverProvider/>
-<MudDialogProvider/>
-<MudSnackbarProvider/>

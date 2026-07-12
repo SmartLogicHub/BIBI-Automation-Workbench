@@ -1,0 +1,257 @@
+@using Ray.BiliBiliTool.Application.Contracts.MaintenanceWorkflows
+
+<section class="node-settings">
+    @if (SelectedStep is null)
+    {
+        <div class="node-settings__empty">
+            <MudIcon Icon="@Icons.Material.Outlined.TouchApp" />
+            <strong>选择一个节点</strong>
+        </div>
+    }
+    else
+    {
+        <header class="node-settings__intro">
+            <span>@SelectedStep.Group</span>
+            <h2>@SelectedStep.DisplayName</h2>
+            @if (!string.IsNullOrWhiteSpace(SelectedNode?.Description))
+            {
+                <p>@SelectedNode.Description</p>
+            }
+        </header>
+
+        <div class="node-settings__section node-settings__switch-row">
+            <div>
+                <strong>启用动作</strong>
+                <span>关闭后运行时会跳过</span>
+            </div>
+            <MudSwitch T="bool" Value="@SelectedStep.Enabled" ValueChanged="SetEnabledAsync" Color="Color.Primary" />
+        </div>
+
+        @if (IsWaitNode)
+        {
+            <div class="node-settings__section">
+                <h3>等待设置</h3>
+                <MudNumericField T="int" Value="@SelectedStep.IntervalSeconds" ValueChanged="SetWaitSecondsAsync"
+                                 Label="等待时长（秒）" Min="1" Max="86400" Margin="Margin.Dense" Variant="Variant.Outlined" />
+            </div>
+        }
+        else if (IsRandomBranch)
+        {
+            <div class="node-settings__section">
+                <h3>分支概率</h3>
+                <MudNumericField T="int" Value="@GetParameter("branchProbability", 50)" ValueChanged="SetBranchProbabilityAsync"
+                                 Label="命中概率（%）" Min="0" Max="100" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                <div class="node-settings__branch-key">
+                    <span><i class="is-match"></i>命中</span>
+                    <span><i class="is-other"></i>未命中</span>
+                </div>
+            </div>
+        }
+        else if (!IsResultNode)
+        {
+            <div class="node-settings__section">
+                <h3>执行设置</h3>
+                <MudNumericField T="int" Value="@GetParameter("executionProbability", 100)" ValueChanged="SetExecutionProbabilityAsync"
+                                 Label="执行概率（%）" Min="0" Max="100" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                @if (IsRepeatableAction)
+                {
+                    <div class="node-settings__grid">
+                        <MudNumericField T="int" Value="@GetParameter("countMin", 1)" ValueChanged="SetCountMinAsync"
+                                         Label="最少次数" Min="1" Max="50" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                        <MudNumericField T="int" Value="@GetParameter("countMax", 1)" ValueChanged="SetCountMaxAsync"
+                                         Label="最多次数" Min="1" Max="50" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                        <MudNumericField T="int" Value="@GetParameter("waitMinSeconds", 5)" ValueChanged="SetWaitMinAsync"
+                                         Label="最短间隔（秒）" Min="0" Max="3600" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                        <MudNumericField T="int" Value="@GetParameter("waitMaxSeconds", 15)" ValueChanged="SetWaitMaxAsync"
+                                         Label="最长间隔（秒）" Min="0" Max="3600" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                    </div>
+                }
+            </div>
+
+            @if (IsRepeatableAction)
+            {
+                <div class="node-settings__section">
+                    <div class="node-settings__switch-row">
+                        <div>
+                            <strong>每日次数上限</strong>
+                            <span>防止单日执行过多</span>
+                        </div>
+                        <MudSwitch T="bool" Value="@HasDailyLimit" ValueChanged="SetDailyLimitEnabledAsync" Color="Color.Primary" />
+                    </div>
+                    @if (HasDailyLimit)
+                    {
+                        <MudNumericField T="int" Value="@GetParameter("dailyLimit", 5)" ValueChanged="SetDailyLimitAsync"
+                                         Label="每日最多次数" Min="1" Max="1000" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                    }
+                </div>
+            }
+        }
+
+        <div class="node-settings__section">
+            <h3>未完成时</h3>
+            <MudSelect T="string" Value="@SelectedStep.FailureStrategy" ValueChanged="SetFailureStrategyAsync"
+                       Margin="Margin.Dense" Variant="Variant.Outlined">
+                <MudSelectItem Value="@Skip">跳过并继续</MudSelectItem>
+                <MudSelectItem Value="@Stop">停止当前流程</MudSelectItem>
+                <MudSelectItem Value="@Retry">再次尝试</MudSelectItem>
+            </MudSelect>
+            @if (SelectedStep.FailureStrategy == Retry)
+            {
+                <MudNumericField T="int" Value="@SelectedStep.RetryCount" ValueChanged="SetRetryCountAsync"
+                                 Label="再次尝试次数" Min="1" Max="10" Margin="Margin.Dense" Variant="Variant.Outlined" />
+            }
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(SelectedStep.Permission))
+        {
+            <div class="node-settings__ability">
+                <MudIcon Icon="@Icons.Material.Outlined.Verified" Size="Size.Small" />
+                <span>需要账号具备 @PermissionText(SelectedStep.Permission)</span>
+            </div>
+        }
+
+        @if (DeleteRequested.HasDelegate)
+        {
+            <div class="node-settings__danger-zone">
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Error"
+                           StartIcon="@Icons.Material.Outlined.DeleteOutline"
+                           FullWidth="true"
+                           aria-label="删除此节点"
+                           OnClick="@(() => DeleteRequested.InvokeAsync())">
+                    删除此节点
+                </MudButton>
+            </div>
+        }
+    }
+</section>
+
+@code {
+    private const string Skip = "skip";
+    private const string Stop = "stop";
+    private const string Retry = "retry";
+
+    [Parameter]
+    public MaintenanceWorkflowStep? SelectedStep { get; set; }
+
+    [Parameter]
+    public MaintenanceWorkflowNodeDefinition? SelectedNode { get; set; }
+
+    [Parameter]
+    public EventCallback Changed { get; set; }
+
+    [Parameter]
+    public EventCallback DeleteRequested { get; set; }
+
+    private bool IsWaitNode => SelectedStep?.NodeType == "control.wait";
+    private bool IsRandomBranch => SelectedStep?.NodeType == "control.random";
+    private bool IsResultNode => SelectedStep?.NodeType == "control.log_result";
+    private bool IsRepeatableAction => SelectedStep?.Group is "随机互动" or "直播互动";
+    private bool HasDailyLimit => GetParameter("dailyLimit", 0) > 0;
+
+    private int GetParameter(string key, int fallback)
+    {
+        return SelectedStep is not null
+            && SelectedStep.Parameters.TryGetValue(key, out var value)
+            && int.TryParse(value, out var parsed)
+                ? parsed
+                : fallback;
+    }
+
+    private async Task SetEnabledAsync(bool value)
+    {
+        if (SelectedStep is null) return;
+        SelectedStep.Enabled = value;
+        await Changed.InvokeAsync();
+    }
+
+    private async Task SetWaitSecondsAsync(int value)
+    {
+        if (SelectedStep is null) return;
+        SelectedStep.IntervalSeconds = Math.Clamp(value, 1, 86400);
+        await Changed.InvokeAsync();
+    }
+
+    private Task SetBranchProbabilityAsync(int value) => SetParameterAsync("branchProbability", value, 0, 100);
+    private Task SetExecutionProbabilityAsync(int value) => SetParameterAsync("executionProbability", value, 0, 100);
+
+    private async Task SetCountMinAsync(int value)
+    {
+        var minimum = Math.Clamp(value, 1, 50);
+        await SetParameterAsync("countMin", minimum, 1, 50, notify: false);
+        if (GetParameter("countMax", 1) < minimum)
+            await SetParameterAsync("countMax", minimum, 1, 50, notify: false);
+        await Changed.InvokeAsync();
+    }
+
+    private async Task SetCountMaxAsync(int value)
+    {
+        var maximum = Math.Clamp(value, 1, 50);
+        await SetParameterAsync("countMax", maximum, 1, 50, notify: false);
+        if (GetParameter("countMin", 1) > maximum)
+            await SetParameterAsync("countMin", maximum, 1, 50, notify: false);
+        await Changed.InvokeAsync();
+    }
+
+    private async Task SetWaitMinAsync(int value)
+    {
+        var minimum = Math.Clamp(value, 0, 3600);
+        await SetParameterAsync("waitMinSeconds", minimum, 0, 3600, notify: false);
+        if (GetParameter("waitMaxSeconds", 0) < minimum)
+            await SetParameterAsync("waitMaxSeconds", minimum, 0, 3600, notify: false);
+        await Changed.InvokeAsync();
+    }
+
+    private async Task SetWaitMaxAsync(int value)
+    {
+        var maximum = Math.Clamp(value, 0, 3600);
+        await SetParameterAsync("waitMaxSeconds", maximum, 0, 3600, notify: false);
+        if (GetParameter("waitMinSeconds", 0) > maximum)
+            await SetParameterAsync("waitMinSeconds", maximum, 0, 3600, notify: false);
+        await Changed.InvokeAsync();
+    }
+
+    private async Task SetDailyLimitEnabledAsync(bool value)
+    {
+        if (SelectedStep is null) return;
+        if (value)
+            SelectedStep.Parameters["dailyLimit"] = "5";
+        else
+            SelectedStep.Parameters.Remove("dailyLimit");
+        await Changed.InvokeAsync();
+    }
+
+    private Task SetDailyLimitAsync(int value) => SetParameterAsync("dailyLimit", value, 1, 1000);
+
+    private async Task SetFailureStrategyAsync(string value)
+    {
+        if (SelectedStep is null) return;
+        SelectedStep.FailureStrategy = value;
+        if (value == Retry && SelectedStep.RetryCount < 1)
+            SelectedStep.RetryCount = 1;
+        await Changed.InvokeAsync();
+    }
+
+    private async Task SetRetryCountAsync(int value)
+    {
+        if (SelectedStep is null) return;
+        SelectedStep.RetryCount = Math.Clamp(value, 1, 10);
+        await Changed.InvokeAsync();
+    }
+
+    private async Task SetParameterAsync(string key, int value, int minimum, int maximum, bool notify = true)
+    {
+        if (SelectedStep is null) return;
+        SelectedStep.Parameters[key] = Math.Clamp(value, minimum, maximum).ToString();
+        if (notify)
+            await Changed.InvokeAsync();
+    }
+
+    private static string PermissionText(string permission) => permission switch
+    {
+        "big_vip" => "大会员资格",
+        "monthly_bcoin_coupon" => "可用 B 币券",
+        "purchase_required" => "付费权限",
+        _ => "对应资格"
+    };
+}

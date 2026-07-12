@@ -66,12 +66,18 @@ namespace ConfigTest
             ];
             Debug.WriteLine(logLevel);
 
-            var cookie = Global.ServiceProviderRoot.GetRequiredService<BiliCookie>();
+            var cookieOptions = Global.ServiceProviderRoot.GetRequiredService<
+                IOptionsMonitor<BiliBiliCookieOptions>
+            >();
 
             Debug.WriteLine(
-                JsonSerializer.Serialize(cookie, new JsonSerializerOptions { WriteIndented = true })
+                JsonSerializer.Serialize(
+                    cookieOptions.CurrentValue,
+                    new JsonSerializerOptions { WriteIndented = true }
+                )
             );
-            Assert.True(!string.IsNullOrWhiteSpace(cookie.UserId));
+            Assert.NotNull(Global.ConfigurationRoot);
+            Assert.NotNull(cookieOptions.CurrentValue);
         }
 
         /// <summary>

@@ -1,0 +1,126 @@
+.node-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0 18px 24px;
+}
+
+.node-settings__empty {
+    display: flex;
+    min-height: 220px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--bibi-muted);
+}
+
+.node-settings__intro {
+    padding: 2px 0 4px;
+}
+
+.node-settings__intro > span {
+    color: var(--bibi-cyan);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.node-settings__intro h2 {
+    margin: 3px 0 0;
+    font-size: 22px;
+    line-height: 1.25;
+}
+
+.node-settings__intro p {
+    margin: 7px 0 0;
+    color: var(--bibi-muted);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.node-settings__section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 0;
+    border-top: 1px solid var(--bibi-border);
+}
+
+.node-settings__section h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.node-settings__switch-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.node-settings__switch-row > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.node-settings__switch-row strong {
+    font-size: 13px;
+}
+
+.node-settings__switch-row span {
+    color: var(--bibi-muted);
+    font-size: 11px;
+}
+
+.node-settings__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.node-settings__branch-key {
+    display: flex;
+    gap: 18px;
+    color: var(--bibi-muted);
+    font-size: 11px;
+}
+
+.node-settings__branch-key span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.node-settings__branch-key i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.node-settings__branch-key .is-match { background: var(--bibi-success); }
+.node-settings__branch-key .is-other { background: #8c79e7; }
+
+.node-settings__danger-zone {
+    margin-top: auto;
+    padding: 14px 16px 18px;
+    border-top: 1px solid #edf1ef;
+}
+
+.node-settings__ability {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    color: #5f556f;
+    font-size: 12px;
+    background: var(--bibi-lavender);
+    border-radius: 7px;
+}
+
+@media (max-width: 420px) {
+    .node-settings__grid {
+        grid-template-columns: 1fr;
+    }
+}

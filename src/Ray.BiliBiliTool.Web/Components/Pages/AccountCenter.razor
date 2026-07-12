@@ -1,0 +1,748 @@
+@page "/accounts"
+@rendermode InteractiveServer
+@implements IDisposable
+@using Ray.BiliBiliTool.Application.Contracts.ContentAutomation
+@using Ray.BiliBiliTool.Application.Contracts.MaintenanceWorkflows
+@using Ray.BiliBiliTool.Application.Contracts.Runtime
+@using Ray.BiliBiliTool.Web.Services
+@inject IContentAutomationBridge AutomationBridge
+@inject IContentAutomationStrategyService StrategyService
+@inject IMaintenanceWorkflowService WorkflowService
+@inject ISystemRuntimeStateStore RuntimeStateStore
+@inject IWebAuditLog AuditLog
+@inject Ray.BiliBiliTool.DomainService.Interfaces.ILoginDomainService LoginDomainService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>账号管理</PageTitle>
+
+<section class="bibi-page account-page">
+    <header class="bibi-page-header account-header">
+        <div>
+            <p class="bibi-eyebrow">账号资产</p>
+            <h1 class="bibi-title">账号管理</h1>
+            <p class="bibi-subtitle">统一管理登录状态、今日额度和自动任务启停。</p>
+        </div>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.PersonAdd"
+                   Class="account-add-button"
+                   aria-label="添加账号"
+                   OnClick="@(() => _isAddDrawerOpen = true)">
+            添加账号
+        </MudButton>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="account-notice account-notice--warning">
+            <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />
+            <span>@_errorMessage</span>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_operationMessage))
+    {
+        <div class="account-notice account-notice--info">
+            <MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" />
+            <span>@_operationMessage</span>
+        </div>
+    }
+
+    <div class="account-toolbar">
+        <div class="account-summary">
+            <strong>@_accounts.Count</strong>
+            <span>个账号</span>
+            <i></i>
+            <span>@AvailableAccountCount 个可用</span>
+        </div>
+        <div class="account-toolbar__actions">
+            <MudTooltip Text="检查全部账号">
+                <MudIconButton Icon="@Icons.Material.Outlined.HealthAndSafety"
+                               Disabled="@(_isBusy || !CanUseService || _accounts.Count == 0)"
+                               OnClick="CheckAllAccountsAsync"
+                               aria-label="检查全部账号" />
+            </MudTooltip>
+            <MudTooltip Text="刷新账号状态">
+                <MudIconButton Icon="@Icons.Material.Outlined.Refresh"
+                               Disabled="@_isLoading"
+                               OnClick="LoadAsync"
+                               aria-label="刷新账号状态" />
+            </MudTooltip>
+        </div>
+    </div>
+
+    @if (_isLoading && _accounts.Count == 0)
+    {
+        <div class="account-skeleton-grid" aria-label="正在加载账号">
+            @for (var index = 0; index < 3; index++)
+            {
+                <div class="account-skeleton"></div>
+            }
+        </div>
+    }
+    else if (_accounts.Count == 0)
+    {
+        <section class="account-empty">
+            <span class="account-empty__icon"><MudIcon Icon="@Icons.Material.Outlined.PeopleAlt" /></span>
+            <div>
+                <h2>还没有托管账号</h2>
+                <p>添加账号后会自动打开 B 站登录页。</p>
+            </div>
+        </section>
+    }
+    else
+    {
+        <div class="account-grid">
+            @foreach (var account in _accounts)
+            {
+                <article class="account-card @(!account.Enabled ? "account-card--disabled" : "")">
+                    <div class="account-card__head">
+                        @if (!string.IsNullOrWhiteSpace(account.AvatarUrl) && !_failedAvatarIds.Contains(account.Id))
+                        {
+                            <img class="account-avatar"
+                                 src="@account.AvatarUrl"
+                                 alt=""
+                                 referrerpolicy="no-referrer"
+                                 @onerror="@(() => MarkAvatarFailed(account.Id))" />
+                        }
+                        else
+                        {
+                            <span class="account-avatar account-avatar--fallback">@Initials(account)</span>
+                        }
+                        <div class="account-card__identity">
+                            <div class="account-card__name-row">
+                                <h2>@DisplayName(account)</h2>
+                                <span class="bibi-status-chip @GetLoginStatusClass(account.LoginStatus)">@GetStatusText(account.LoginStatus)</span>
+                            </div>
+                            <p>
+                                <span>@account.Name</span>
+                                @if (!string.IsNullOrWhiteSpace(account.Uid))
+                                {
+                                    <span>UID @account.Uid</span>
+                                }
+                            </p>
+                        </div>
+                        <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                                 Size="Size.Small"
+                                 AnchorOrigin="Origin.BottomRight"
+                                 TransformOrigin="Origin.TopRight"
+                                 AriaLabel="更多账号操作">
+                            <MudMenuItem Icon="@(account.Enabled ? Icons.Material.Outlined.PauseCircle : Icons.Material.Outlined.PlayCircle)"
+                                         Disabled="@(_isBusy || !CanUseService)"
+                                         OnClick="@(() => ToggleAccountAsync(account))">
+                                @(account.Enabled ? "停用自动任务" : "启用自动任务")
+                            </MudMenuItem>
+                            <MudMenuItem Icon="@Icons.Material.Outlined.Delete"
+                                         IconColor="Color.Error"
+                                         Disabled="@(_isBusy || !CanUseService)"
+                                         OnClick="@(() => DeleteAccountAsync(account))">
+                                删除账号
+                            </MudMenuItem>
+                        </MudMenu>
+                    </div>
+
+                    <div class="account-card__stats">
+                        <div>
+                            <span>今日评论</span>
+                            <strong>@account.TodayCount / @DisplayLimit(account.DailyLimit)</strong>
+                        </div>
+                        <div>
+                            <span>最后检查</span>
+                            <strong>@FormatCheckedTime(account.LastLoginCheckedAt)</strong>
+                        </div>
+                    </div>
+
+                    <div class="account-quota" aria-label="今日评论额度">
+                        <span style="width: @QuotaPercent(account)%"></span>
+                    </div>
+
+                    <div class="account-card__actions">
+                        @if (_activeLoginJobs.ContainsKey(account.Id))
+                        {
+                             <MudButton Variant="Variant.Filled"
+                                        Color="Color.Primary"
+                                        StartIcon="@Icons.Material.Outlined.Close"
+                                        Disabled="@(_isBusy || !CanUseService)"
+                                        aria-label="关闭登录窗口"
+                                        OnClick="@(() => CloseLoginBrowserAsync(account))">
+                                关闭登录窗口
+                            </MudButton>
+                        }
+                        else
+                        {
+                             <MudButton Variant="Variant.Filled"
+                                        Color="Color.Primary"
+                                        StartIcon="@Icons.Material.Outlined.Login"
+                                        Disabled="@(_isBusy || !CanUseService)"
+                                        aria-label="@LoginActionText(account)"
+                                        OnClick="@(() => StartLoginBrowserAsync(account))">
+                                @LoginActionText(account)
+                            </MudButton>
+                        }
+                        <MudTooltip Text="检查登录状态">
+                            <MudIconButton Icon="@Icons.Material.Outlined.FactCheck"
+                                           Disabled="@(_isBusy || !CanUseService)"
+                                           OnClick="@(() => CheckAccountAsync(account))"
+                                           aria-label="检查登录状态" />
+                        </MudTooltip>
+                        <MudTooltip Text="同步最新会话">
+                            <MudIconButton Icon="@Icons.Material.Outlined.Sync"
+                                           Disabled="@(_isBusy || !CanUseService)"
+                                           OnClick="@(() => RefreshSessionAsync(account))"
+                                           aria-label="同步最新会话" />
+                        </MudTooltip>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+
+    <MudDrawer @bind-Open="_isAddDrawerOpen"
+               Anchor="Anchor.End"
+               Variant="DrawerVariant.Temporary"
+               Width="min(380px, 100vw)"
+               Elevation="8"
+               Class="account-add-drawer">
+        <div class="account-drawer__head">
+            <div>
+                <span>账号接入</span>
+                <h2>添加账号</h2>
+            </div>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => _isAddDrawerOpen = false)" aria-label="关闭" />
+        </div>
+        <div class="account-drawer__body">
+            <MudTextField T="string"
+                          @bind-Value="_newAccountName"
+                          Label="账号备注"
+                          Placeholder="例如：主账号"
+                          Variant="Variant.Outlined"
+                          Immediate="true"
+                          Autofocus="@true" />
+            <p>创建后会打开独立的 B 站登录窗口。完成登录后关闭窗口即可。</p>
+        </div>
+        <div class="account-drawer__footer">
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => _isAddDrawerOpen = false)">取消</MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Outlined.OpenInNew"
+                       Disabled="@(string.IsNullOrWhiteSpace(_newAccountName) || _isBusy || !CanUseService)"
+                       OnClick="CreateAccountAsync">
+                创建并登录
+            </MudButton>
+        </div>
+    </MudDrawer>
+</section>
+
+@code {
+    private SystemRuntimeState _runtime = new();
+    private bool _isLoading = true;
+    private bool _isBusy;
+    private bool _isAddDrawerOpen;
+    private string _errorMessage = "";
+    private string _operationMessage = "";
+    private string _newAccountName = "";
+    private List<ContentAutomationAccount> _accounts = [];
+    private readonly Dictionary<string, string> _activeLoginJobs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _failedAvatarIds = new(StringComparer.OrdinalIgnoreCase);
+
+    private bool CanUseService => _runtime.IsReady;
+    private int AvailableAccountCount => _accounts.Count(AutomationAccountSelection.IsAvailable);
+
+    protected override Task OnInitializedAsync()
+    {
+        _runtime = RuntimeStateStore.Current;
+        RuntimeStateStore.Changed += OnRuntimeChanged;
+        _ = InvokeAsync(LoadAsync);
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+        _errorMessage = "";
+        try
+        {
+            if (CanUseService)
+                _accounts = (await AutomationBridge.GetAccountsAsync()).ToList();
+        }
+        catch
+        {
+            _errorMessage = "账号状态暂时无法加载，后台会继续重试。";
+        }
+        finally
+        {
+            _isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CreateAccountAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newAccountName) || !CanUseService)
+            return;
+
+        _isBusy = true;
+        _errorMessage = "";
+        _operationMessage = "";
+        try
+        {
+            var result = await AutomationBridge.CreateAccountAsync(new ContentAutomationAccountCreateRequest
+            {
+                Name = _newAccountName.Trim(),
+                Enabled = true,
+                DailyLimit = 20
+            });
+            if (!result.Success)
+            {
+                _errorMessage = string.IsNullOrWhiteSpace(result.Message) ? "账号创建失败，请稍后重试。" : result.Message;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(result.Account.Id))
+            {
+                _errorMessage = "账号没有正确保存，请刷新后重试。";
+                return;
+            }
+
+            _newAccountName = "";
+            _isAddDrawerOpen = false;
+            _operationMessage = $"{result.Account.Name} 已创建，正在打开登录窗口。";
+            _accounts.RemoveAll(item => string.Equals(item.Id, result.Account.Id, StringComparison.OrdinalIgnoreCase));
+            _accounts.Add(result.Account);
+            await InvokeAsync(StateHasChanged);
+            await AuditAsync("添加账号", result.Account.Id, _operationMessage);
+            await OpenLoginWindowAndStartSyncAsync(result.Account);
+            await LoadAsync();
+        }
+        catch
+        {
+            _errorMessage = "账号创建失败，请稍后重试。";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ToggleAccountAsync(ContentAutomationAccount account)
+    {
+        _isBusy = true;
+        try
+        {
+            var enabled = !account.Enabled;
+            var result = await AutomationBridge.UpdateAccountAsync(account.Id, new ContentAutomationAccountUpdateRequest
+            {
+                Enabled = enabled,
+                DailyLimit = account.DailyLimit
+            });
+            if (result.Success)
+            {
+                _operationMessage = $"{DisplayName(account)} 已{(enabled ? "启用" : "停用")}。";
+                await LoadAsync();
+            }
+            else
+            {
+                _errorMessage = result.Message;
+            }
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task StartLoginBrowserAsync(ContentAutomationAccount account)
+    {
+        _isBusy = true;
+        _errorMessage = "";
+        try
+        {
+            await OpenLoginWindowAndStartSyncAsync(account);
+        }
+        catch
+        {
+            _errorMessage = "登录窗口未能打开，请稍后重试。";
+        }
+        finally
+        {
+            _isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenLoginWindowAndStartSyncAsync(ContentAutomationAccount account)
+    {
+        if (string.IsNullOrWhiteSpace(account.Id))
+            return;
+
+        _operationMessage = $"正在打开 {account.Name} 的登录窗口。";
+        StateHasChanged();
+        var result = await AutomationBridge.OpenLoginWindowAsync(account.Id, timeoutSeconds: 300);
+        if (!result.Success)
+        {
+            _errorMessage = "登录窗口未能打开，请稍后重试。";
+            return;
+        }
+
+        _operationMessage = $"请在新窗口完成 {account.Name} 的登录，登录成功后窗口会自动关闭。";
+        _activeLoginJobs[account.Id] = result.JobId;
+        _ = PollLoginSessionAsync(account);
+    }
+
+    private async Task PollLoginSessionAsync(ContentAutomationAccount account)
+    {
+        await Task.Delay(1000);
+        ContentAutomationJobStatus? finalStatus = null;
+        for (var attempt = 0; attempt < 155; attempt++)
+        {
+            if (!_activeLoginJobs.TryGetValue(account.Id, out var jobId))
+                return;
+
+            var status = await AutomationBridge.GetJobAsync(jobId);
+            var normalized = status.Status?.Trim().ToLowerInvariant();
+            if (normalized is "error" or "failed")
+            {
+                _activeLoginJobs.Remove(account.Id);
+                _operationMessage = "";
+                _errorMessage = LoginFailureMessage(status);
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(status.Message)
+                && status.Message.Contains("登录窗口已经打开", StringComparison.Ordinal))
+            {
+                _operationMessage = status.Message;
+                await InvokeAsync(StateHasChanged);
+            }
+
+            if (normalized is "done" or "success" or "stopped" or "timeout" or "manual_required")
+            {
+                finalStatus = status;
+                break;
+            }
+
+            await Task.Delay(2000);
+        }
+
+        if (!_activeLoginJobs.Remove(account.Id))
+            return;
+
+        _operationMessage = $"正在确认 {account.Name} 的登录状态。";
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var check = await AutomationBridge.CheckAccountLoginAsync(account.Id);
+            if (check.Success)
+                await WaitForJobCompletionAsync(check.JobId);
+        }
+        catch
+        {
+            // The saved session is checked below so the user can retry without reopening the login window.
+        }
+
+        var session = await AutomationBridge.GetAccountCookieAsync(account.Id);
+        if (!string.IsNullOrWhiteSpace(session))
+        {
+            var synced = await SyncSessionToMaintenanceAsync(session);
+            _operationMessage = synced
+                ? $"{account.Name} 已登录，可以参与评论和养号任务。"
+                : $"{account.Name} 已登录，养号会话将在稍后重试同步。";
+            await AuditAsync("同步账号会话", account.Id, _operationMessage);
+            await LoadAsync();
+            return;
+        }
+
+        _activeLoginJobs.Remove(account.Id);
+        _operationMessage = finalStatus?.Status?.Trim().ToLowerInvariant() == "stopped"
+            ? $"{account.Name} 的登录窗口已关闭，账号尚未完成登录。"
+            : $"{account.Name} 尚未完成登录，可重新打开登录窗口。";
+        await LoadAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string LoginFailureMessage(ContentAutomationJobStatus status)
+    {
+        var detail = $"{status.Message} {status.Error}".ToLowerInvariant();
+        if (detail.Contains("network") || detail.Contains("err_") || detail.Contains("timeout"))
+            return "登录页暂时无法访问，请检查网络后重新打开。";
+        if (detail.Contains("executable") || detail.Contains("browser") || detail.Contains("playwright"))
+            return "登录窗口启动失败，请在设置中检查运行服务后重试。";
+        return "登录窗口启动失败，请稍后重新打开。";
+    }
+
+    private async Task CloseLoginBrowserAsync(ContentAutomationAccount account)
+    {
+        if (!_activeLoginJobs.TryGetValue(account.Id, out var jobId))
+            return;
+        _isBusy = true;
+        try
+        {
+            await AutomationBridge.StopJobAsync(jobId);
+            _operationMessage = $"{account.Name} 的登录窗口已关闭。";
+        }
+        catch
+        {
+            _errorMessage = "登录窗口暂时无法关闭，请直接关闭窗口后重试。";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task CheckAccountAsync(ContentAutomationAccount account)
+    {
+        _isBusy = true;
+        _operationMessage = $"正在检查 {DisplayName(account)}。";
+        try
+        {
+            var result = await AutomationBridge.CheckAccountLoginAsync(account.Id);
+            if (result.Success)
+            {
+                if (!await WaitForJobCompletionAsync(result.JobId))
+                {
+                    _errorMessage = "账号检查未完成，请稍后重试。";
+                    return;
+                }
+                var session = await AutomationBridge.GetAccountCookieAsync(account.Id);
+                if (!string.IsNullOrWhiteSpace(session))
+                    await SyncSessionToMaintenanceAsync(session);
+                else
+                    await RemoveMaintenanceSessionAsync(account.Uid);
+                await LoadAsync();
+                _operationMessage = $"{DisplayName(account)} 检查完成。";
+            }
+            else
+            {
+                _errorMessage = "账号检查未完成，请稍后重试。";
+            }
+        }
+        catch
+        {
+            _errorMessage = "账号检查未完成，请稍后重试。";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task CheckAllAccountsAsync()
+    {
+        _isBusy = true;
+        _operationMessage = "正在检查全部账号。";
+        var checkedCount = 0;
+        try
+        {
+            foreach (var account in _accounts)
+            {
+                var result = await AutomationBridge.CheckAccountLoginAsync(account.Id);
+                if (result.Success && await WaitForJobCompletionAsync(result.JobId))
+                {
+                    var session = await AutomationBridge.GetAccountCookieAsync(account.Id);
+                    if (!string.IsNullOrWhiteSpace(session))
+                        await SyncSessionToMaintenanceAsync(session);
+                    else
+                        await RemoveMaintenanceSessionAsync(account.Uid);
+                    checkedCount++;
+                }
+            }
+            await LoadAsync();
+            _operationMessage = $"已完成 {checkedCount} 个账号的检查。";
+        }
+        catch
+        {
+            _errorMessage = "部分账号未能完成检查，可稍后单独重试。";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task RefreshSessionAsync(ContentAutomationAccount account)
+    {
+        _isBusy = true;
+        _operationMessage = $"正在同步 {DisplayName(account)} 的最新会话。";
+        try
+        {
+            var result = await AutomationBridge.RefreshAccountCookieAsync(account.Id);
+            var session = result.Success ? await AutomationBridge.GetAccountCookieAsync(account.Id) : "";
+            if (!string.IsNullOrWhiteSpace(session) && await SyncSessionToMaintenanceAsync(session))
+            {
+                _operationMessage = $"{DisplayName(account)} 的会话已同步。";
+                await LoadAsync();
+            }
+            else
+            {
+                if (result.Success)
+                    await RemoveMaintenanceSessionAsync(account.Uid);
+                _errorMessage = "会话同步未完成，请重新登录后再试。";
+            }
+        }
+        catch
+        {
+            _errorMessage = "会话同步未完成，请稍后重试。";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteAccountAsync(ContentAutomationAccount account)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "删除账号",
+            $"确定删除 {DisplayName(account)} 吗？该账号的登录资料和本地记录将一并清理。",
+            yesText: "删除",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        _isBusy = true;
+        try
+        {
+            if (_activeLoginJobs.TryGetValue(account.Id, out var jobId))
+                await AutomationBridge.StopJobAsync(jobId);
+            var result = await AutomationBridge.DeleteAccountAsync(account.Id);
+            if (result.Success)
+            {
+                if (!string.IsNullOrWhiteSpace(account.Uid))
+                {
+                    await LoginDomainService.DeleteCookieFromJsonFileAsync(account.Uid, default);
+                    await WorkflowService.RemoveAccountAsync(account.Uid);
+                }
+                await StrategyService.RemoveAccountAsync(account.Id);
+                _activeLoginJobs.Remove(account.Id);
+                _accounts.RemoveAll(item => item.Id == account.Id);
+                _operationMessage = $"{DisplayName(account)} 已删除。";
+                await AuditAsync("删除账号", account.Id, _operationMessage);
+            }
+            else
+            {
+                _errorMessage = "账号删除失败，请稍后重试。";
+            }
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task<bool> WaitForJobCompletionAsync(string jobId)
+    {
+        for (var attempt = 0; attempt < 45 && !string.IsNullOrWhiteSpace(jobId); attempt++)
+        {
+            var status = await AutomationBridge.GetJobAsync(jobId);
+            var normalized = status.Status?.Trim().ToLowerInvariant();
+            if (normalized is "done" or "success")
+                return true;
+            if (normalized is "error" or "failed" or "stopped" or "timeout" or "manual_required")
+                return false;
+            await Task.Delay(1000);
+        }
+        return false;
+    }
+
+    private async Task<bool> SyncSessionToMaintenanceAsync(string session)
+    {
+        try
+        {
+            var values = session.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(item => item.Split('=', 2))
+                .Where(item => item.Length == 2)
+                .ToDictionary(item => item[0].Trim(), item => item[1].Trim(), StringComparer.OrdinalIgnoreCase);
+            var accountSession = new Ray.BiliBiliTool.Agent.BiliCookie(values);
+            accountSession.Check();
+            await LoginDomainService.SaveCookieToJsonFileAsync(accountSession, default);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task RemoveMaintenanceSessionAsync(string accountUid)
+    {
+        if (!string.IsNullOrWhiteSpace(accountUid))
+            await LoginDomainService.DeleteCookieFromJsonFileAsync(accountUid, default);
+    }
+
+    private void OnRuntimeChanged(SystemRuntimeState state)
+    {
+        var becameReady = !_runtime.IsReady && state.IsReady;
+        _runtime = state;
+        _ = InvokeAsync(async () =>
+        {
+            if (becameReady)
+                await LoadAsync();
+            else
+                StateHasChanged();
+        });
+    }
+
+    private Task AuditAsync(string action, string detail, string result) =>
+        AuditLog.AddAsync("本地用户", action, detail, result);
+
+    private static string DisplayName(ContentAutomationAccount account) =>
+        string.IsNullOrWhiteSpace(account.Nickname) ? account.Name : account.Nickname;
+
+    private static string Initials(ContentAutomationAccount account)
+    {
+        var value = DisplayName(account).Trim();
+        return value.Length == 0 ? "B" : value[..Math.Min(2, value.Length)].ToUpperInvariant();
+    }
+
+    private void MarkAvatarFailed(string accountId)
+    {
+        _failedAvatarIds.Add(accountId);
+    }
+
+    private static string LoginActionText(ContentAutomationAccount account) =>
+        AutomationAccountSelection.IsAvailable(account) ? "重新登录" : "打开登录";
+
+    private static bool IsLoggedIn(string status) =>
+        status?.Trim().ToLowerInvariant() is "ok" or "logged_in" or "success";
+
+    private static string GetLoginStatusClass(string status) => status?.Trim().ToLowerInvariant() switch
+    {
+        "ok" or "logged_in" or "success" => "bibi-status-chip--success",
+        "verify_required" => "bibi-status-chip--warning",
+        "login_required" or "failed" or "error" => "bibi-status-chip--danger",
+        _ => ""
+    };
+
+    private static string GetStatusText(string? status) => status?.Trim().ToLowerInvariant() switch
+    {
+        "ok" or "logged_in" or "success" => "可用",
+        "verify_required" => "需要验证",
+        "login_required" => "需要登录",
+        "failed" or "error" => "异常",
+        _ => "未检查"
+    };
+
+    private static string DisplayLimit(int limit) => limit <= 0 ? "不限" : limit.ToString();
+
+    private static int QuotaPercent(ContentAutomationAccount account)
+    {
+        if (account.DailyLimit <= 0)
+            return 0;
+        return Math.Clamp((int)Math.Round(account.TodayCount * 100d / account.DailyLimit), 0, 100);
+    }
+
+    private static string FormatCheckedTime(string value)
+    {
+        if (!DateTimeOffset.TryParse(value, out var time))
+            return "尚未检查";
+        var local = time.LocalDateTime;
+        return local.Date == DateTime.Today ? local.ToString("HH:mm") : local.ToString("MM-dd HH:mm");
+    }
+
+    public void Dispose()
+    {
+        RuntimeStateStore.Changed -= OnRuntimeChanged;
+    }
+}

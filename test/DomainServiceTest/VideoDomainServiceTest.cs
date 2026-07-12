@@ -10,7 +10,7 @@ namespace DomainServiceTest
             Program.CreateHost(new[] { "--ENVIRONMENT=Development" });
         }
 
-        [Fact]
+        [LiveBilibiliFact]
         public async Task GetVideoCountOfUp_Test()
         {
             using var scope = Global.ServiceProviderRoot.CreateScope();
@@ -20,7 +20,7 @@ namespace DomainServiceTest
             await domainService.GetVideoCountOfUp(1585227649, null);
         }
 
-        [Fact]
+        [LiveBilibiliFact]
         public async Task GetRandomVideoOfUp_Test()
         {
             using var scope = Global.ServiceProviderRoot.CreateScope();

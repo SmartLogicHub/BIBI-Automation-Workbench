@@ -27,6 +27,11 @@ public interface ILoginDomainService : IDomainService
     Task SaveCookieToJsonFileAsync(BiliCookie ckInfo, CancellationToken cancellationToken);
 
     /// <summary>
+    /// 删除指定账号的本地登录会话
+    /// </summary>
+    Task DeleteCookieFromJsonFileAsync(string userId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// 持久化Cookie到青龙环境变量
     /// </summary>
     /// <param name="ckInfo"></param>

@@ -1,7 +1,4 @@
-@page "/Configurations/ChargeTaskConfig"
-@using Microsoft.AspNetCore.Authorization
 @using Ray.BiliBiliTool.Config.Options;
-@attribute [Authorize]
 @rendermode InteractiveServer
 @inherits BaseConfigComponent<ChargeTaskOptions>
 
@@ -59,8 +56,8 @@
 
                             <MudItem xs="12" md="6">
                                 <MudSwitch T="bool" Value="_isSpecifyUpToggled" ValueChanged="OnSpecifyUpToggled"
-                                           Label="指定其他UP" Color="Color.Primary"
-                                           HelperText="开启后可以指定充电给其他UP主" />
+                                           Label="指定其他UP" Color="Color.Primary" />
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">开启后可以指定充电给其他UP主</MudText>
                                 @if (_isSpecifyUpToggled)
                                 {
                                     <div>
@@ -97,8 +94,3 @@
         }
     }
 </MudContainer>
-
-<MudThemeProvider/>
-<MudPopoverProvider/>
-<MudDialogProvider/>
-<MudSnackbarProvider/>

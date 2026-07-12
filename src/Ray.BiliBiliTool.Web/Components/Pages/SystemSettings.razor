@@ -1,0 +1,511 @@
+@page "/SystemSettings"
+@page "/settings"
+@rendermode InteractiveServer
+@implements IDisposable
+@using Ray.BiliBiliTool.Application.Contracts.ContentAutomation
+@using Ray.BiliBiliTool.Application.Contracts.Runtime
+@using Ray.BiliBiliTool.Web.Services
+@inject IContentAutomationBridge AutomationBridge
+@inject ISystemRuntimeStateStore RuntimeStateStore
+@inject IDataMaintenanceService DataMaintenanceService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>设置</PageTitle>
+
+<section class="bibi-page settings-page">
+    <header class="bibi-page-header settings-header">
+        <div>
+            <p class="bibi-eyebrow">应用设置</p>
+            <h1 class="bibi-title">设置</h1>
+            <p class="bibi-subtitle">管理 AI 模型、系统服务和本地数据。</p>
+        </div>
+        <MudTooltip Text="刷新设置状态">
+            <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Disabled="@_isBusy" OnClick="LoadAsync" aria-label="刷新设置状态" />
+        </MudTooltip>
+    </header>
+
+    <section class="settings-group">
+        <div class="settings-group__head">
+            <div><h2>AI 模型</h2><p>用于生成评论和筛选候选视频</p></div>
+        </div>
+        <div class="settings-rows">
+            <button type="button" class="settings-row" @onclick="@(() => OpenProvider("deepseek"))">
+                <span class="settings-row__icon settings-row__icon--lavender"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" /></span>
+                <span class="settings-row__body">
+                    <strong>DeepSeek</strong>
+                    <small>@ProviderSummary(_aiSettings.Deepseek)</small>
+                </span>
+                <span class="bibi-status-chip @ProviderStatusClass(_aiSettings.Deepseek)">@ProviderStatus(_aiSettings.Deepseek)</span>
+                <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" />
+            </button>
+            <button type="button" class="settings-row" @onclick="@(() => OpenProvider("qwen"))">
+                <span class="settings-row__icon settings-row__icon--blue"><MudIcon Icon="@Icons.Material.Outlined.Psychology" /></span>
+                <span class="settings-row__body">
+                    <strong>通义千问</strong>
+                    <small>@ProviderSummary(_aiSettings.Qwen)</small>
+                </span>
+                <span class="bibi-status-chip @ProviderStatusClass(_aiSettings.Qwen)">@ProviderStatus(_aiSettings.Qwen)</span>
+                <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" />
+            </button>
+        </div>
+    </section>
+
+    <section class="settings-group">
+        <div class="settings-group__head">
+            <div><h2>系统服务</h2><p>应用会自动启动并维护所需服务</p></div>
+        </div>
+        <div class="settings-rows">
+            <div class="settings-row settings-row--static">
+                <span class="settings-row__icon settings-row__icon--mint"><MudIcon Icon="@Icons.Material.Outlined.PlayCircle" /></span>
+                <span class="settings-row__body">
+                    <strong>自动任务服务</strong>
+                    <small>评论引流、网页登录与养号任务</small>
+                </span>
+                <span class="service-state @RuntimeStateClass"><MudIcon Icon="@RuntimeStateIcon" Size="Size.Small" />@RuntimeStateText</span>
+            </div>
+            <div class="settings-row settings-row--static">
+                <span class="settings-row__icon settings-row__icon--neutral"><MudIcon Icon="@Icons.Material.Outlined.Storage" /></span>
+                <span class="settings-row__body">
+                    <strong>本地数据</strong>
+                    <small>账号、策略、流程与运行记录</small>
+                </span>
+                <span class="service-state @(_maintenanceSnapshot is null ? "service-state--starting" : "service-state--ready")">
+                    <MudIcon Icon="@(_maintenanceSnapshot is null ? Icons.Material.Outlined.Schedule : Icons.Material.Outlined.CheckCircle)" Size="Size.Small" />
+                    @(_maintenanceSnapshot is null ? "检查中" : "正常")
+                </span>
+            </div>
+        </div>
+    </section>
+
+    <section class="settings-group">
+        <div class="settings-group__head">
+            <div><h2>数据维护</h2><p>备份、清理和导出均保存在本机</p></div>
+        </div>
+        <div class="maintenance-grid">
+            <article class="maintenance-item">
+                <span class="settings-row__icon settings-row__icon--lavender"><MudIcon Icon="@Icons.Material.Outlined.Backup" /></span>
+                <div><strong>本地备份</strong><p>备份账号、策略、流程和运行数据。</p></div>
+                <div class="maintenance-item__actions">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Disabled="@_isBusy" OnClick="CreateBackupAsync">立即备份</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Default" Disabled="@_isBusy" OnClick="OpenGeneratedFilesAsync">管理文件 (@_generatedFiles.Count)</MudButton>
+                </div>
+            </article>
+            <article class="maintenance-item">
+                <span class="settings-row__icon settings-row__icon--blue"><MudIcon Icon="@Icons.Material.Outlined.CleaningServices" /></span>
+                <div><strong>日志清理</strong><p>清理 30 天前的运行日志，不影响业务数据。</p></div>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" Disabled="@_isBusy" OnClick="CleanLogsAsync">清理日志</MudButton>
+            </article>
+            <article class="maintenance-item">
+                <span class="settings-row__icon settings-row__icon--mint"><MudIcon Icon="@Icons.Material.Outlined.FileDownload" /></span>
+                <div><strong>数据导出</strong><p>导出评论记录、策略和养号流程。</p></div>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" Disabled="@_isBusy" OnClick="ExportDataAsync">导出数据</MudButton>
+            </article>
+        </div>
+    </section>
+
+    <MudDrawer @bind-Open="_isFilesDrawerOpen"
+               Anchor="Anchor.End"
+               Variant="DrawerVariant.Temporary"
+               Width="min(420px, 100vw)"
+               Elevation="8"
+               Class="provider-drawer">
+        <div class="provider-drawer__head">
+            <div><span>数据维护</span><h2>本地文件</h2></div>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => _isFilesDrawerOpen = false)" aria-label="关闭本地文件" />
+        </div>
+        <div class="generated-files__body">
+            @if (_generatedFiles.Count == 0)
+            {
+                <div class="generated-files__empty">
+                    <MudIcon Icon="@Icons.Material.Outlined.Inventory2" />
+                    <strong>还没有本地文件</strong>
+                    <span>创建备份或导出数据后，可在这里下载和删除。</span>
+                </div>
+            }
+            else
+            {
+                @foreach (var file in _generatedFiles)
+                {
+                    <article class="generated-file">
+                        <span class="settings-row__icon @(file.Kind == "本地备份" ? "settings-row__icon--lavender" : "settings-row__icon--mint")">
+                            <MudIcon Icon="@(file.Kind == "本地备份" ? Icons.Material.Outlined.Backup : Icons.Material.Outlined.Description)" />
+                        </span>
+                        <div class="generated-file__body">
+                            <strong>@file.Kind</strong>
+                            <span>@file.CreatedAt.ToLocalTime().ToString("MM-dd HH:mm") · @FormatFileSize(file.SizeBytes)</span>
+                            <small>@file.Name</small>
+                        </div>
+                        <div class="generated-file__actions">
+                            <MudIconButton Href="@GeneratedFileDownloadUrl(file)"
+                                           Target="_blank"
+                                           Icon="@Icons.Material.Outlined.Download"
+                                           aria-label="@($"下载 {file.Kind}")" />
+                            <MudIconButton Icon="@Icons.Material.Outlined.Delete"
+                                           Color="Color.Error"
+                                           OnClick="@(() => DeleteGeneratedFileAsync(file))"
+                                           aria-label="@($"删除 {file.Kind}")" />
+                        </div>
+                    </article>
+                }
+            }
+        </div>
+        <div class="provider-drawer__footer generated-files__footer">
+            <span>@_generatedFiles.Count 个文件</span>
+            <MudButton Variant="Variant.Text"
+                       Color="Color.Error"
+                       Disabled="@(_isBusy || _generatedFiles.Count == 0)"
+                       OnClick="ClearGeneratedFilesAsync">全部删除</MudButton>
+        </div>
+    </MudDrawer>
+
+    <MudDrawer @bind-Open="_isProviderDrawerOpen"
+               Anchor="Anchor.End"
+               Variant="DrawerVariant.Temporary"
+               Width="min(420px, 100vw)"
+               Elevation="8"
+               Class="provider-drawer">
+        <div class="provider-drawer__head">
+            <div><span>AI 模型</span><h2>@EditingProviderName</h2></div>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => _isProviderDrawerOpen = false)" aria-label="关闭" />
+        </div>
+        <div class="provider-drawer__body">
+            <MudTextField T="string"
+                          @bind-Value="_editingProvider.ApiKey"
+                          Label="API Key"
+                          InputType="InputType.Password"
+                          Placeholder="@ProviderKeyPlaceholder"
+                          Variant="Variant.Outlined" />
+            <p class="provider-field-help">留空会保留已经保存的密钥。</p>
+            <MudTextField T="string" @bind-Value="_editingProvider.Model" Label="模型名称" Variant="Variant.Outlined" Class="mt-3" />
+            <MudTextField T="string" @bind-Value="_editingProvider.BaseUrl" Label="API 地址" Variant="Variant.Outlined" Class="mt-3" />
+
+            @if (!string.IsNullOrWhiteSpace(_providerVerifyMessage))
+            {
+                <div class="provider-verify-result @(_providerVerifyOk ? "provider-verify-result--ok" : "provider-verify-result--warning")">
+                    <MudIcon Icon="@(_providerVerifyOk ? Icons.Material.Outlined.CheckCircle : Icons.Material.Outlined.ErrorOutline)" Size="Size.Small" />
+                    <span>@_providerVerifyMessage</span>
+                </div>
+            }
+        </div>
+        <div class="provider-drawer__footer">
+            <div class="provider-drawer__footer-left">
+                <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="VerifyProviderAsync">验证连接</MudButton>
+                @if (_editingProvider.Configured)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="@_isBusy" OnClick="RemoveProviderAsync">移除配置</MudButton>
+                }
+            </div>
+            <div>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => _isProviderDrawerOpen = false)">取消</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_isBusy" OnClick="SaveProviderAsync">保存</MudButton>
+            </div>
+        </div>
+    </MudDrawer>
+</section>
+
+@code {
+    private SystemRuntimeState _runtime = new();
+    private bool _isBusy;
+    private bool _isProviderDrawerOpen;
+    private bool _isFilesDrawerOpen;
+    private string _editingProviderKey = "deepseek";
+    private string _providerVerifyMessage = "";
+    private bool _providerVerifyOk;
+    private ContentAutomationAiSettings _aiSettings = new();
+    private ContentAutomationProviderConfig _editingProvider = new();
+    private DataMaintenanceSnapshot? _maintenanceSnapshot;
+    private List<DataMaintenanceFile> _generatedFiles = [];
+
+    private string EditingProviderName => _editingProviderKey == "qwen" ? "通义千问" : "DeepSeek";
+    private string ProviderKeyPlaceholder => _editingProvider.Configured ? _editingProvider.MaskedKey : "输入密钥";
+    private string RuntimeStateText => _runtime.Status switch
+    {
+        SystemRuntimeStatus.Ready => "正常",
+        SystemRuntimeStatus.Starting => "启动中",
+        _ => "需要处理"
+    };
+    private string RuntimeStateClass => _runtime.Status switch
+    {
+        SystemRuntimeStatus.Ready => "service-state--ready",
+        SystemRuntimeStatus.Starting => "service-state--starting",
+        _ => "service-state--warning"
+    };
+    private string RuntimeStateIcon => _runtime.Status switch
+    {
+        SystemRuntimeStatus.Ready => Icons.Material.Outlined.CheckCircle,
+        SystemRuntimeStatus.Starting => Icons.Material.Outlined.Schedule,
+        _ => Icons.Material.Outlined.ErrorOutline
+    };
+
+    protected override Task OnInitializedAsync()
+    {
+        _runtime = RuntimeStateStore.Current;
+        RuntimeStateStore.Changed += OnRuntimeChanged;
+        _ = InvokeAsync(LoadAsync);
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadAsync()
+    {
+        if (_isBusy)
+            return;
+        _isBusy = true;
+        try
+        {
+            var maintenanceTask = DataMaintenanceService.GetSnapshotAsync();
+            var generatedFilesTask = DataMaintenanceService.GetGeneratedFilesAsync();
+            if (_runtime.IsReady)
+                _aiSettings = await AutomationBridge.GetAiSettingsAsync();
+            _maintenanceSnapshot = await maintenanceTask;
+            _generatedFiles = (await generatedFilesTask).ToList();
+        }
+        catch
+        {
+            Snackbar.Add("部分设置状态暂时无法读取。", Severity.Warning);
+        }
+        finally
+        {
+            _isBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OpenProvider(string provider)
+    {
+        _editingProviderKey = provider;
+        var source = provider == "qwen" ? _aiSettings.Qwen : _aiSettings.Deepseek;
+        _editingProvider = new ContentAutomationProviderConfig
+        {
+            Configured = source.Configured,
+            MaskedKey = source.MaskedKey,
+            ApiKey = "",
+            Model = source.Model,
+            BaseUrl = source.BaseUrl
+        };
+        _providerVerifyMessage = "";
+        _providerVerifyOk = false;
+        _isProviderDrawerOpen = true;
+    }
+
+    private async Task SaveProviderAsync()
+    {
+        _isBusy = true;
+        try
+        {
+            var target = _editingProviderKey == "qwen" ? _aiSettings.Qwen : _aiSettings.Deepseek;
+            target.ApiKey = _editingProvider.ApiKey;
+            target.Model = _editingProvider.Model;
+            target.BaseUrl = _editingProvider.BaseUrl;
+            var result = await AutomationBridge.SaveAiSettingsAsync(_aiSettings);
+            if (!result.Success)
+            {
+                Snackbar.Add("AI 模型设置保存失败。", Severity.Error);
+                return;
+            }
+            _aiSettings = await AutomationBridge.GetAiSettingsAsync();
+            _isProviderDrawerOpen = false;
+            Snackbar.Add($"{EditingProviderName} 设置已保存。", Severity.Success);
+        }
+        catch
+        {
+            Snackbar.Add("AI 模型设置保存失败。", Severity.Error);
+        }
+        finally
+        {
+            _aiSettings.Deepseek.ClearApiKey = false;
+            _aiSettings.Qwen.ClearApiKey = false;
+            _isBusy = false;
+        }
+    }
+
+    private async Task VerifyProviderAsync()
+    {
+        _isBusy = true;
+        try
+        {
+            var request = new ContentAutomationVerifyRequest
+            {
+                ApiKey = _editingProvider.ApiKey,
+                Model = _editingProvider.Model,
+                BaseUrl = _editingProvider.BaseUrl
+            };
+            var result = _editingProviderKey == "qwen"
+                ? await AutomationBridge.VerifyQwenAsync(request)
+                : await AutomationBridge.VerifyDeepSeekAsync(request);
+            _providerVerifyOk = result.Success;
+            _providerVerifyMessage = result.Success ? "连接正常，可以使用。" : "连接失败，请检查设置和账户状态。";
+        }
+        catch
+        {
+            _providerVerifyOk = false;
+            _providerVerifyMessage = "连接验证未完成，请稍后重试。";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task RemoveProviderAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            $"移除 {EditingProviderName} 配置",
+            "移除后，使用该模型的评论策略将无法运行，直到重新完成配置。确定继续吗？",
+            yesText: "移除配置",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        _isBusy = true;
+        try
+        {
+            var target = _editingProviderKey == "qwen" ? _aiSettings.Qwen : _aiSettings.Deepseek;
+            target.ApiKey = "";
+            target.ClearApiKey = true;
+            var result = await AutomationBridge.SaveAiSettingsAsync(_aiSettings);
+            target.ClearApiKey = false;
+            if (!result.Success)
+            {
+                Snackbar.Add("配置未移除，请稍后重试。", Severity.Error);
+                return;
+            }
+
+            _aiSettings = await AutomationBridge.GetAiSettingsAsync();
+            _isProviderDrawerOpen = false;
+            Snackbar.Add($"{EditingProviderName} 配置已移除。", Severity.Success);
+        }
+        catch
+        {
+            Snackbar.Add("配置未移除，请稍后重试。", Severity.Error);
+        }
+        finally
+        {
+            _aiSettings.Deepseek.ClearApiKey = false;
+            _aiSettings.Qwen.ClearApiKey = false;
+            _isBusy = false;
+        }
+    }
+
+    private async Task CreateBackupAsync()
+    {
+        await RunMaintenanceAsync(() => DataMaintenanceService.CreateBackupAsync(), "本地备份已完成。");
+    }
+
+    private async Task CleanLogsAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBox("清理日志", "确定清理 30 天前的运行日志吗？", yesText: "清理", cancelText: "取消");
+        if (confirmed != true)
+            return;
+        _isBusy = true;
+        try
+        {
+            var executionTask = DataMaintenanceService.CleanExpiredExecutionLogsAsync(30);
+            var systemTask = DataMaintenanceService.CleanExpiredSystemLogsAsync(30);
+            var filesTask = DataMaintenanceService.CleanExpiredLogFilesAsync(30);
+            await Task.WhenAll(executionTask, systemTask, filesTask);
+            Snackbar.Add("过期日志已清理。", Severity.Success);
+            _maintenanceSnapshot = await DataMaintenanceService.GetSnapshotAsync();
+        }
+        catch
+        {
+            Snackbar.Add("日志清理未完成，请稍后重试。", Severity.Error);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ExportDataAsync()
+    {
+        await RunMaintenanceAsync(() => DataMaintenanceService.ExportBusinessDataAsync(), "运营数据已导出。");
+    }
+
+    private async Task OpenGeneratedFilesAsync()
+    {
+        _generatedFiles = (await DataMaintenanceService.GetGeneratedFilesAsync()).ToList();
+        _isFilesDrawerOpen = true;
+    }
+
+    private async Task DeleteGeneratedFileAsync(DataMaintenanceFile file)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "删除本地文件",
+            $"确定删除这份{file.Kind}吗？删除后无法恢复。",
+            yesText: "删除",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        var result = await DataMaintenanceService.DeleteGeneratedFileAsync(file.Id);
+        Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Warning);
+        _generatedFiles = (await DataMaintenanceService.GetGeneratedFilesAsync()).ToList();
+    }
+
+    private async Task ClearGeneratedFilesAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "删除全部本地文件",
+            $"确定删除 {_generatedFiles.Count} 个备份和导出文件吗？删除后无法恢复。",
+            yesText: "全部删除",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        var result = await DataMaintenanceService.ClearGeneratedFilesAsync();
+        Snackbar.Add(result.Message, Severity.Success);
+        _generatedFiles = (await DataMaintenanceService.GetGeneratedFilesAsync()).ToList();
+    }
+
+    private static string GeneratedFileDownloadUrl(DataMaintenanceFile file)
+    {
+        return $"/api/generated-files/download?id={Uri.EscapeDataString(file.Id)}";
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        return Ray.BiliBiliTool.Web.Services.DataMaintenanceService.FormatBytes(bytes);
+    }
+
+    private async Task RunMaintenanceAsync(Func<Task<DataMaintenanceActionResult>> action, string successMessage)
+    {
+        _isBusy = true;
+        try
+        {
+            var result = await action();
+            Snackbar.Add(result.Success ? successMessage : result.Message, result.Success ? Severity.Success : Severity.Warning);
+            _generatedFiles = (await DataMaintenanceService.GetGeneratedFilesAsync()).ToList();
+        }
+        catch
+        {
+            Snackbar.Add("操作未完成，请稍后重试。", Severity.Error);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void OnRuntimeChanged(SystemRuntimeState state)
+    {
+        var becameReady = !_runtime.IsReady && state.IsReady;
+        _runtime = state;
+        _ = InvokeAsync(async () =>
+        {
+            if (becameReady)
+                await LoadAsync();
+            else
+                StateHasChanged();
+        });
+    }
+
+    private static string ProviderStatus(ContentAutomationProviderConfig provider) => provider.Configured ? "已配置" : "未配置";
+    private static string ProviderStatusClass(ContentAutomationProviderConfig provider) => provider.Configured ? "bibi-status-chip--success" : "bibi-status-chip--warning";
+    private static string ProviderSummary(ContentAutomationProviderConfig provider) => provider.Configured ? (string.IsNullOrWhiteSpace(provider.Model) ? "已连接" : provider.Model) : "点击完成配置";
+
+    public void Dispose()
+    {
+        RuntimeStateStore.Changed -= OnRuntimeChanged;
+    }
+}

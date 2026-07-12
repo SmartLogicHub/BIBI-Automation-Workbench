@@ -1,0 +1,624 @@
+@page "/records"
+@rendermode InteractiveServer
+@using Ray.BiliBiliTool.Application.Contracts.ContentAutomation
+@using Ray.BiliBiliTool.Application.Contracts.MaintenanceWorkflows
+@using Ray.BiliBiliTool.Web.Components.Pages.MaintenanceWorkflow
+@inject IContentAutomationBridge AutomationBridge
+@inject IMaintenanceWorkflowService WorkflowService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>运行记录</PageTitle>
+
+<section class="bibi-page records-page">
+    <header class="bibi-page-header records-header">
+        <div>
+            <p class="bibi-eyebrow">执行凭证</p>
+            <h1 class="bibi-title">运行记录</h1>
+            <p class="bibi-subtitle">查看每次养号动作和评论发布的目标、结果与平台确认信息。</p>
+        </div>
+        <div class="records-header__actions">
+            <MudTooltip Text="刷新">
+                <MudIconButton Icon="@Icons.Material.Outlined.Refresh"
+                               Disabled="@_isBusy"
+                               OnClick="LoadAsync"
+                               aria-label="刷新运行记录" />
+            </MudTooltip>
+            <MudMenu Icon="@Icons.Material.Filled.MoreHoriz"
+                     AnchorOrigin="Origin.BottomRight"
+                     TransformOrigin="Origin.TopRight"
+                     AriaLabel="记录管理">
+                <MudMenuItem Icon="@Icons.Material.Outlined.Download"
+                             Disabled="@(_ledger.Count == 0 || _isBusy)"
+                             OnClick="ExportCommentsAsync">
+                    导出评论记录
+                </MudMenuItem>
+                <MudMenuItem Icon="@Icons.Material.Outlined.DeleteSweep"
+                             IconColor="Color.Error"
+                             Disabled="@(_ledger.Count == 0 || _isBusy)"
+                             OnClick="ClearCommentsAsync">
+                    清空评论记录
+                </MudMenuItem>
+            </MudMenu>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <MudAlert Severity="@_messageSeverity" Variant="Variant.Outlined" Dense="true">@_message</MudAlert>
+    }
+
+    <div class="records-summary" aria-label="运行记录摘要">
+        <article class="records-summary__item records-summary__item--confirmed">
+            <span>平台已确认</span>
+            <strong>@ConfirmedEvidenceCount</strong>
+            <small>有平台回执的动作</small>
+        </article>
+        <article class="records-summary__item records-summary__item--pending">
+            <span>待核验</span>
+            <strong>@PendingEvidenceCount</strong>
+            <small>已发起但尚无回读</small>
+        </article>
+        <article class="records-summary__item records-summary__item--failed">
+            <span>未完成</span>
+            <strong>@FailedRecordCount</strong>
+            <small>需要查看失败原因</small>
+        </article>
+        <article class="records-summary__item records-summary__item--today">
+            <span>今日运行</span>
+            <strong>@TodayRecordCount</strong>
+            <small>养号与评论合计</small>
+        </article>
+    </div>
+
+    <div class="records-toolbar">
+        <div class="records-segments" role="group" aria-label="记录类型">
+            <button type="button" class="@SegmentClass("all")" @onclick="@(() => SetKindFilter("all"))">全部</button>
+            <button type="button" class="@SegmentClass("workflow")" @onclick="@(() => SetKindFilter("workflow"))">养号执行</button>
+            <button type="button" class="@SegmentClass("comment")" @onclick="@(() => SetKindFilter("comment"))">评论发布</button>
+        </div>
+        <MudTextField T="string"
+                      @bind-Value="_search"
+                      Placeholder="搜索流程、账号或视频"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Outlined.Search"
+                      Immediate="true"
+                      Margin="Margin.Dense"
+                      Variant="Variant.Outlined"
+                      Class="records-search" />
+    </div>
+
+    <div class="records-workspace">
+        <section class="records-list" aria-label="运行记录列表">
+            <header class="records-section-head">
+                <div>
+                    <strong>记录</strong>
+                    <span>@FilteredRows.Count() 条</span>
+                </div>
+                @if (_isBusy)
+                {
+                    <MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" />
+                }
+            </header>
+
+            <div class="records-list__body">
+                @if (!_isBusy && !FilteredRows.Any())
+                {
+                    <div class="records-empty">
+                        <MudIcon Icon="@Icons.Material.Outlined.ReceiptLong" />
+                        <strong>没有符合条件的记录</strong>
+                        <span>运行养号流程或评论任务后，凭证会出现在这里。</span>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var row in FilteredRows)
+                    {
+                        <button type="button"
+                                class="records-row @(row.Key == _selectedKey ? "is-selected" : "")"
+                                aria-current="@(row.Key == _selectedKey ? "true" : null)"
+                                @onclick="@(() => SelectRecord(row))">
+                            <span class="records-row__icon @($"is-{row.Kind}")">
+                                <MudIcon Icon="@RowIcon(row)" Size="Size.Small" />
+                            </span>
+                            <span class="records-row__content">
+                                <span class="records-row__heading">
+                                    <strong>@row.Title</strong>
+                                    <i class="records-state @($"is-{row.StatusCategory}")">@row.StatusText</i>
+                                </span>
+                                <span>@row.Subtitle</span>
+                                <small>@row.Actor · @FormatTime(row.OccurredAt)</small>
+                            </span>
+                            <MudIcon Icon="@Icons.Material.Outlined.ChevronRight" Size="Size.Small" />
+                        </button>
+                    }
+                }
+            </div>
+        </section>
+
+        <aside class="records-detail" aria-label="记录详情">
+            @if (SelectedRow is null)
+            {
+                <div class="records-empty records-empty--detail">
+                    <MudIcon Icon="@Icons.Material.Outlined.FactCheck" />
+                    <strong>选择一条记录</strong>
+                    <span>这里会显示执行目标、平台回执和失败原因。</span>
+                </div>
+            }
+            else
+            {
+                <header class="records-detail__head">
+                    <div>
+                        <span>@KindText(SelectedRow)</span>
+                        <h2>@SelectedRow.Title</h2>
+                        <small>记录编号 @ShortId(SelectedRow.Id)</small>
+                    </div>
+                    <span class="records-state @($"is-{SelectedRow.StatusCategory}")">@SelectedRow.StatusText</span>
+                </header>
+
+                @if (SelectedRow.WorkflowRun is not null)
+                {
+                    <WorkflowRunLog CurrentRun="@SelectedRow.WorkflowRun"
+                                    DeleteRun="DeleteWorkflowRunAsync"
+                                    ClearHistory="ClearWorkflowRunsAsync" />
+                }
+                else if (SelectedRow.Comment is not null)
+                {
+                    var comment = SelectedRow.Comment;
+                    <div class="comment-receipt-detail">
+                        <section class="receipt-proof @($"is-{SelectedRow.StatusCategory}")">
+                            <span class="receipt-proof__icon">
+                                <MudIcon Icon="@CommentProofIcon(comment)" />
+                            </span>
+                            <div>
+                                <strong>@CommentProofTitle(comment)</strong>
+                                <span>@CommentProofDescription(comment)</span>
+                            </div>
+                        </section>
+
+                        <section class="receipt-section">
+                            <span class="receipt-section__label">评论内容</span>
+                            <blockquote>@(string.IsNullOrWhiteSpace(comment.CommentText) ? "没有保存评论内容" : comment.CommentText)</blockquote>
+                        </section>
+
+                        <dl class="receipt-facts">
+                            <div><dt>参与账号</dt><dd>@AccountName(comment)</dd></div>
+                            <div><dt>发生时间</dt><dd>@CommentTime(comment)</dd></div>
+                            <div><dt>目标视频</dt><dd>@VideoName(comment)</dd></div>
+                            @if (!string.IsNullOrWhiteSpace(comment.PlatformCommentId))
+                            {
+                                <div><dt>评论编号</dt><dd>@comment.PlatformCommentId</dd></div>
+                            }
+                        </dl>
+
+                        @if (!string.IsNullOrWhiteSpace(comment.ProofText))
+                        {
+                            <section class="receipt-section">
+                                <span class="receipt-section__label">站内凭证</span>
+                                <p>@comment.ProofText</p>
+                            </section>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(comment.ErrorMessage))
+                        {
+                            <section class="receipt-error" role="status">
+                                <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />
+                                <span>@comment.ErrorMessage</span>
+                            </section>
+                        }
+
+                        <div class="receipt-actions">
+                            @if (!string.IsNullOrWhiteSpace(CommentOpenUrl(comment)))
+                            {
+                                <MudButton Variant="Variant.Outlined"
+                                           Color="Color.Primary"
+                                           StartIcon="@Icons.Material.Outlined.OpenInNew"
+                                           Href="@CommentOpenUrl(comment)"
+                                           Target="_blank">
+                                    打开评论区
+                                </MudButton>
+                            }
+                            <MudButton Variant="Variant.Text"
+                                       Color="Color.Error"
+                                       StartIcon="@Icons.Material.Outlined.DeleteOutline"
+                                       Disabled="@_isBusy"
+                                       OnClick="@(() => DeleteCommentAsync(comment))">
+                                删除本地记录
+                            </MudButton>
+                        </div>
+                        <p class="receipt-delete-note">删除记录不会撤回 B 站上已经发表的评论。</p>
+                    </div>
+                }
+            }
+        </aside>
+    </div>
+</section>
+
+@code {
+    private bool _isBusy;
+    private string _message = "";
+    private Severity _messageSeverity = Severity.Info;
+    private string _kindFilter = "all";
+    private string _search = "";
+    private string _selectedKey = "";
+    private List<ContentAutomationLedgerRecord> _ledger = [];
+    private List<MaintenanceWorkflowRunRecord> _workflowRuns = [];
+    private List<UnifiedRecord> _rows = [];
+
+    private IEnumerable<MaintenanceWorkflowActionEvidence> WorkflowEvidence =>
+        _workflowRuns.SelectMany(run => run.StepLogs).SelectMany(log => log.Evidence);
+
+    private int ConfirmedEvidenceCount =>
+        WorkflowEvidence.Count(IsPlatformConfirmed) + _ledger.Count(IsCommentConfirmed);
+
+    private int PendingEvidenceCount =>
+        WorkflowEvidence.Count(IsPendingEvidence) + _ledger.Count(IsCommentPending);
+
+    private int FailedRecordCount => _rows.Count(row => row.StatusCategory == "failed");
+
+    private int TodayRecordCount => _rows.Count(row =>
+        row.OccurredAt != DateTimeOffset.MinValue && row.OccurredAt.LocalDateTime.Date == DateTime.Today);
+
+    private IEnumerable<UnifiedRecord> FilteredRows
+    {
+        get
+        {
+            var rows = _kindFilter == "all"
+                ? _rows
+                : _rows.Where(row => row.Kind == _kindFilter);
+            if (string.IsNullOrWhiteSpace(_search))
+                return rows;
+            var keyword = _search.Trim();
+            return rows.Where(row =>
+                $"{row.Title} {row.Subtitle} {row.Actor} {row.StatusText} {row.Id}"
+                    .Contains(keyword, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private UnifiedRecord? SelectedRow =>
+        _rows.FirstOrDefault(row => row.Key == _selectedKey);
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _isBusy = true;
+        try
+        {
+            var selected = _selectedKey;
+            var ledgerTask = AutomationBridge.GetLedgerAsync();
+            var runsTask = WorkflowService.GetRunsAsync();
+            await Task.WhenAll(ledgerTask, runsTask);
+            _ledger = (await ledgerTask).ToList();
+            _workflowRuns = (await runsTask).ToList();
+            _rows = _workflowRuns.Select(CreateWorkflowRow)
+                .Concat(_ledger.Select(CreateCommentRow))
+                .OrderByDescending(row => row.OccurredAt)
+                .ToList();
+            _selectedKey = _rows.Any(row => row.Key == selected)
+                ? selected
+                : _rows.FirstOrDefault()?.Key ?? "";
+            _message = "";
+        }
+        catch (Exception ex)
+        {
+            SetMessage($"运行记录加载失败：{ex.Message}", Severity.Warning);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void SetKindFilter(string value)
+    {
+        _kindFilter = value;
+        var visible = FilteredRows.ToList();
+        if (visible.All(row => row.Key != _selectedKey))
+            _selectedKey = visible.FirstOrDefault()?.Key ?? "";
+    }
+
+    private void SelectRecord(UnifiedRecord row) => _selectedKey = row.Key;
+
+    private async Task DeleteWorkflowRunAsync(MaintenanceWorkflowRunRecord run)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "删除运行记录",
+            "确定删除这条本地养号记录吗？已经发生的平台操作不会被撤销。",
+            yesText: "删除记录",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        if (await WorkflowService.DeleteRunAsync(run.Id))
+        {
+            Snackbar.Add("养号运行记录已删除。", Severity.Success);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add("运行中的记录不能删除，请先停止流程。", Severity.Warning);
+        }
+    }
+
+    private async Task ClearWorkflowRunsAsync(string workflowId)
+    {
+        var workflowName = _workflowRuns.FirstOrDefault(run => run.WorkflowId == workflowId)?.WorkflowName ?? "该流程";
+        var confirmed = await DialogService.ShowMessageBox(
+            "清空流程记录",
+            $"确定清空“{workflowName}”的全部已结束记录吗？运行中的记录会保留。",
+            yesText: "清空记录",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        var deleted = await WorkflowService.ClearRunsAsync(workflowId);
+        Snackbar.Add(deleted > 0 ? $"已清理 {deleted} 条运行记录。" : "没有可清理的已结束记录。", Severity.Info);
+        await LoadAsync();
+    }
+
+    private async Task DeleteCommentAsync(ContentAutomationLedgerRecord comment)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "删除评论记录",
+            "这里只删除本地记录，不会撤回 B 站上已经发表的评论。确定删除吗？",
+            yesText: "删除记录",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        _isBusy = true;
+        try
+        {
+            var result = await AutomationBridge.DeleteLedgerRecordAsync(comment.Id);
+            if (!result.Success || result.Deleted <= 0)
+            {
+                Snackbar.Add("评论记录未能删除，请刷新后重试。", Severity.Error);
+                return;
+            }
+            Snackbar.Add("评论记录已删除。", Severity.Success);
+            await LoadAsync();
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ExportCommentsAsync()
+    {
+        var result = await AutomationBridge.ExportLedgerAsync();
+        SetMessage(
+            result.Success ? $"已导出 {result.Count} 条评论记录。" : result.Message,
+            result.Success ? Severity.Success : Severity.Warning);
+    }
+
+    private async Task ClearCommentsAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "清空评论记录",
+            "这里只清空本地记录，不会撤回 B 站上已经发表的评论。确定继续吗？",
+            yesText: "清空记录",
+            cancelText: "取消");
+        if (confirmed != true)
+            return;
+
+        var result = await AutomationBridge.ClearLedgerAsync();
+        if (result.Success)
+        {
+            Snackbar.Add($"已清理 {result.Deleted} 条评论记录。", Severity.Success);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add(result.Message, Severity.Warning);
+        }
+    }
+
+    private void SetMessage(string message, Severity severity)
+    {
+        _message = message;
+        _messageSeverity = severity;
+        Snackbar.Add(message, severity);
+    }
+
+    private static UnifiedRecord CreateWorkflowRow(MaintenanceWorkflowRunRecord run)
+    {
+        var evidence = run.StepLogs.SelectMany(log => log.Evidence).ToList();
+        var status = WorkflowStatus(run, evidence);
+        return new UnifiedRecord
+        {
+            Kind = "workflow",
+            Id = run.Id,
+            Title = string.IsNullOrWhiteSpace(run.WorkflowName) ? "未命名养号流程" : run.WorkflowName,
+            Subtitle = $"成功 {run.SuccessCount} · 失败 {run.FailedCount} · 跳过 {run.SkippedCount}",
+            Actor = evidence.Select(item => item.AccountUid).FirstOrDefault(uid => !string.IsNullOrWhiteSpace(uid)) ?? "参与账号",
+            OccurredAt = run.StartedAt,
+            StatusCategory = status.Category,
+            StatusText = status.Text,
+            WorkflowRun = run
+        };
+    }
+
+    private static UnifiedRecord CreateCommentRow(ContentAutomationLedgerRecord comment)
+    {
+        var status = CommentStatus(comment);
+        return new UnifiedRecord
+        {
+            Kind = "comment",
+            Id = comment.Id,
+            Title = VideoName(comment),
+            Subtitle = Truncate(string.IsNullOrWhiteSpace(comment.CommentText) ? "未保存评论内容" : comment.CommentText, 52),
+            Actor = AccountName(comment),
+            OccurredAt = ParseTime(!string.IsNullOrWhiteSpace(comment.PublishedAt) ? comment.PublishedAt : comment.CreatedAt),
+            StatusCategory = status.Category,
+            StatusText = status.Text,
+            Comment = comment
+        };
+    }
+
+    private static (string Category, string Text) WorkflowStatus(
+        MaintenanceWorkflowRunRecord run,
+        IReadOnlyList<MaintenanceWorkflowActionEvidence> evidence)
+    {
+        if (run.Status is MaintenanceWorkflowRunStatus.Running or MaintenanceWorkflowRunStatus.Pending)
+            return ("pending", "运行中");
+        if (run.Status == MaintenanceWorkflowRunStatus.WaitingManualConfirm)
+            return ("pending", "等待确认");
+        if (run.Status == MaintenanceWorkflowRunStatus.Failed)
+            return ("failed", "未完成");
+        if (run.Status == MaintenanceWorkflowRunStatus.Cancelled)
+            return ("neutral", "已停止");
+        if (run.Status == MaintenanceWorkflowRunStatus.Skipped)
+            return ("neutral", "已跳过");
+
+        var hasConfirmed = evidence.Any(IsPlatformConfirmed);
+        var hasPending = evidence.Any(IsPendingEvidence);
+        if (hasPending)
+            return ("pending", hasConfirmed ? "部分待核验" : "待核验");
+        if (hasConfirmed)
+            return ("confirmed", "平台已确认");
+        if (run.AccountSnapshots.Any(snapshot => snapshot.Phase.Equals("after", StringComparison.OrdinalIgnoreCase)
+            && snapshot.Available))
+            return ("confirmed", "状态已回读");
+        return ("legacy", "已完成，无回执");
+    }
+
+    private static (string Category, string Text) CommentStatus(ContentAutomationLedgerRecord comment)
+    {
+        var status = comment.Status?.Trim().ToLowerInvariant() ?? "";
+        if (IsCommentConfirmed(comment))
+            return ("confirmed", "平台已确认");
+        if (status is "submitted_unverified" or "manual_required" or "pending" or "running")
+            return ("pending", status == "running" ? "发布中" : "待核验");
+        if (status is "failed" or "error")
+            return ("failed", "未完成");
+        if (status is "success" or "done")
+            return ("legacy", "历史记录无凭证");
+        if (status is "cancelled" or "stopped" or "skipped")
+            return ("neutral", status == "skipped" ? "已跳过" : "已停止");
+        return ("neutral", "状态未知");
+    }
+
+    private static bool IsPlatformConfirmed(MaintenanceWorkflowActionEvidence evidence) =>
+        evidence.Outcome.Equals("platform_confirmed", StringComparison.OrdinalIgnoreCase)
+        && evidence.PlatformCode == 0;
+
+    private static bool IsPendingEvidence(MaintenanceWorkflowActionEvidence evidence) =>
+        evidence.Outcome.Equals("submitted", StringComparison.OrdinalIgnoreCase)
+        || evidence.Outcome.Equals("pending_confirmation", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsCommentConfirmed(ContentAutomationLedgerRecord comment)
+    {
+        var status = comment.Status?.Trim().ToLowerInvariant() ?? "";
+        return status is "success" or "done"
+            && (!string.IsNullOrWhiteSpace(comment.VerificationMethod)
+                || !string.IsNullOrWhiteSpace(comment.PlatformCommentId)
+                || !string.IsNullOrWhiteSpace(comment.VerifiedAt)
+                || !string.IsNullOrWhiteSpace(comment.ProofText));
+    }
+
+    private static bool IsCommentPending(ContentAutomationLedgerRecord comment)
+    {
+        var status = comment.Status?.Trim().ToLowerInvariant() ?? "";
+        return status is "submitted_unverified" or "manual_required" or "pending" or "running";
+    }
+
+    private static string CommentProofTitle(ContentAutomationLedgerRecord comment)
+    {
+        var status = CommentStatus(comment);
+        return status.Category switch
+        {
+            "confirmed" => "平台已确认评论可见",
+            "pending" => "评论已提交，等待站内回读",
+            "failed" => "评论发布未完成",
+            "legacy" => "历史记录没有站内凭证",
+            _ => "本次操作没有可用凭证"
+        };
+    }
+
+    private static string CommentProofDescription(ContentAutomationLedgerRecord comment)
+    {
+        if (!string.IsNullOrWhiteSpace(comment.ProofText))
+            return comment.ProofText;
+        if (!string.IsNullOrWhiteSpace(comment.ErrorMessage))
+            return comment.ErrorMessage;
+        return CommentStatus(comment).Category switch
+        {
+            "confirmed" => "已从评论区读取到本次发布内容。",
+            "pending" => "系统没有把“点击发布”误判成“发布成功”，可稍后再次核验。",
+            "legacy" => "旧版只保存了完成状态，无法证明评论仍在站内可见。",
+            _ => "没有读取到平台确认信息。"
+        };
+    }
+
+    private static string CommentProofIcon(ContentAutomationLedgerRecord comment) =>
+        CommentStatus(comment).Category switch
+        {
+            "confirmed" => Icons.Material.Outlined.Verified,
+            "pending" => Icons.Material.Outlined.Schedule,
+            "failed" => Icons.Material.Outlined.ErrorOutline,
+            _ => Icons.Material.Outlined.History
+        };
+
+    private string SegmentClass(string value) =>
+        $"records-segment {(value == _kindFilter ? "is-active" : "")}";
+
+    private static string RowIcon(UnifiedRecord row) => row.Kind == "workflow"
+        ? Icons.Material.Outlined.AccountTree
+        : Icons.Material.Outlined.Forum;
+
+    private static string KindText(UnifiedRecord row) => row.Kind == "workflow" ? "养号执行" : "评论发布";
+
+    private static string AccountName(ContentAutomationLedgerRecord comment) =>
+        !string.IsNullOrWhiteSpace(comment.AccountName)
+            ? comment.AccountName
+            : !string.IsNullOrWhiteSpace(comment.AccountId) ? comment.AccountId : "未记录账号";
+
+    private static string VideoName(ContentAutomationLedgerRecord comment) =>
+        !string.IsNullOrWhiteSpace(comment.VideoTitle)
+            ? comment.VideoTitle
+            : !string.IsNullOrWhiteSpace(comment.Bvid) ? comment.Bvid : "未记录目标视频";
+
+    private static string CommentOpenUrl(ContentAutomationLedgerRecord comment) =>
+        !string.IsNullOrWhiteSpace(comment.CommentUrl)
+            ? comment.CommentUrl
+            : !string.IsNullOrWhiteSpace(comment.VideoUrl)
+                ? comment.VideoUrl
+                : string.IsNullOrWhiteSpace(comment.Bvid) ? "" : $"https://www.bilibili.com/video/{comment.Bvid}";
+
+    private static string CommentTime(ContentAutomationLedgerRecord comment)
+    {
+        var value = !string.IsNullOrWhiteSpace(comment.PublishedAt) ? comment.PublishedAt : comment.CreatedAt;
+        var parsed = ParseTime(value);
+        return parsed == DateTimeOffset.MinValue ? "时间未知" : parsed.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss");
+    }
+
+    private static DateTimeOffset ParseTime(string value) =>
+        DateTimeOffset.TryParse(value, out var parsed) ? parsed : DateTimeOffset.MinValue;
+
+    private static string FormatTime(DateTimeOffset value) =>
+        value == DateTimeOffset.MinValue || value == default
+            ? "时间未知"
+            : value.LocalDateTime.ToString("MM-dd HH:mm");
+
+    private static string ShortId(string value) =>
+        string.IsNullOrWhiteSpace(value) ? "未知" : value[..Math.Min(10, value.Length)];
+
+    private static string Truncate(string value, int maxLength) =>
+        value.Length <= maxLength ? value : $"{value[..maxLength]}...";
+
+    private sealed class UnifiedRecord
+    {
+        public string Kind { get; init; } = "";
+        public string Id { get; init; } = "";
+        public string Key => $"{Kind}:{Id}";
+        public string Title { get; init; } = "";
+        public string Subtitle { get; init; } = "";
+        public string Actor { get; init; } = "";
+        public DateTimeOffset OccurredAt { get; init; }
+        public string StatusCategory { get; init; } = "neutral";
+        public string StatusText { get; init; } = "";
+        public MaintenanceWorkflowRunRecord? WorkflowRun { get; init; }
+        public ContentAutomationLedgerRecord? Comment { get; init; }
+    }
+}

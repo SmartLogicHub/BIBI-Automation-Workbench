@@ -1,7 +1,4 @@
-@page "/Configurations/DailyJobConfig"
-@using Microsoft.AspNetCore.Authorization
 @using Ray.BiliBiliTool.Config.Options;
-@attribute [Authorize]
 @rendermode InteractiveServer
 @inherits BaseConfigComponent<DailyTaskOptions>
 
@@ -106,8 +103,3 @@
         }
     }
 </MudContainer>
-
-<MudThemeProvider/>
-<MudPopoverProvider/>
-<MudDialogProvider/>
-<MudSnackbarProvider/>

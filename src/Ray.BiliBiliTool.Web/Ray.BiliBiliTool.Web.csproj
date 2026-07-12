@@ -2,6 +2,8 @@
   <Import Project="..\..\common.props" />
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>BIBI</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>1970628b-9d9e-45d1-b337-32d4d1e64e95</UserSecretsId>
@@ -40,6 +42,20 @@
     <Compile Remove="Auth\JwtAuthStateProvider.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Content Remove="appsettings.Development.json;config\**\*;Data\**\*;Logs\**\*;WorkflowEditor\**\*;Executor\**\__pycache__\**\*;Executor\**\*.pyc" />
+    <None Remove="config\**\*;Data\**\*;Logs\**\*;WorkflowEditor\**\*;Executor\**\__pycache__\**\*;Executor\**\*.pyc" />
+  </ItemGroup>
+  <ItemGroup>
     <Folder Include="Logs\" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="Executor\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+    <None Update="Executor\**\__pycache__\**\*;Executor\**\*.pyc">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </None>
   </ItemGroup>
 </Project>

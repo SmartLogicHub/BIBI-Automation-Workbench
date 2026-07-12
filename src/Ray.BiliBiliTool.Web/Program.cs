@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using BlazingQuartz;
 using BlazingQuartz.Core;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.OpenApi.Models;
 using MudBlazor.Services;
 using Quartz;
@@ -14,6 +16,7 @@ using Ray.BiliBiliTool.Infrastructure.EF;
 using Ray.BiliBiliTool.Infrastructure.EF.Extensions;
 using Ray.BiliBiliTool.Web.Components;
 using Ray.BiliBiliTool.Web.Extensions;
+using Ray.BiliBiliTool.Web.Services;
 using Serilog;
 using Serilog.Debugging;
 
@@ -24,10 +27,32 @@ try
 {
     var builder = WebApplication.CreateBuilder(args);
 
-    builder.Configuration.AddJsonFile("config/cookies.json", optional: true, reloadOnChange: true);
+    builder.Configuration.AddJsonFile("data/cookies.json", optional: true, reloadOnChange: true);
     var sqliteConnStr = builder.Configuration.GetConnectionString("Sqlite");
+    var isProjectRun = File.Exists(
+        Path.Combine(builder.Environment.ContentRootPath, "Ray.BiliBiliTool.Web.csproj")
+    );
+    var portableLaunch = PortableLaunchOptions.Create(isProjectRun, args);
+    if (portableLaunch.Url is not null)
+        builder.WebHost.UseUrls(portableLaunch.Url);
+    var applicationStorageRoot = isProjectRun
+        ? builder.Environment.ContentRootPath
+        : AppContext.BaseDirectory;
+    var dataProtectionDirectory = Path.Combine(applicationStorageRoot, "data", "key-ring");
+    Directory.CreateDirectory(dataProtectionDirectory);
+    builder
+        .Services.AddDataProtection()
+        .SetApplicationName("BIBI.Automation.Workbench")
+        .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionDirectory));
+    var sqliteDbPath = Path.Combine(applicationStorageRoot, "data", "BiliBiliTool.db");
     if (!string.IsNullOrEmpty(sqliteConnStr))
     {
+        sqliteConnStr = SqliteDataSourceResolver.NormalizeFileConnectionString(
+            sqliteConnStr,
+            applicationStorageRoot,
+            out sqliteDbPath
+        );
+        builder.Configuration["ConnectionStrings:Sqlite"] = sqliteConnStr;
         builder.Configuration.AddSqlite(
             connectionString: sqliteConnStr,
             tableName: Ray.BiliBiliTool.Config.Constants.SqliteTableName,
@@ -72,7 +97,7 @@ try
                 .ReadFrom.Services(services)
                 .Enrich.FromLogContext()
                 .WriteTo.SQLite(
-                    sqliteDbPath: sqliteConnStr?.Split(';')[0].Split('=')[1],
+                    sqliteDbPath: sqliteDbPath,
                     tableName: "bili_logs",
                     storeTimestampInUtc: true,
                     batchSize: 7
@@ -149,6 +174,26 @@ try
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "BiliBiliToolPro API V1");
         c.RoutePrefix = "swagger";
     });
+
+    if (portableLaunch.OpenBrowser && portableLaunch.Url is not null)
+    {
+        app.Lifetime.ApplicationStarted.Register(() =>
+        {
+            try
+            {
+                Process.Start(
+                    new ProcessStartInfo { FileName = portableLaunch.Url, UseShellExecute = true }
+                );
+            }
+            catch (Exception openBrowserException)
+            {
+                Log.Warning(
+                    openBrowserException,
+                    "Unable to open the local workbench in the default browser"
+                );
+            }
+        });
+    }
 
     app.Run();
 }

@@ -1,7 +1,325 @@
-﻿@page "/"
+@page "/"
+@rendermode InteractiveServer
+@implements IDisposable
+@using Ray.BiliBiliTool.Application.Contracts.ContentAutomation
+@using Ray.BiliBiliTool.Application.Contracts.MaintenanceWorkflows
+@using Ray.BiliBiliTool.Application.Contracts.Runtime
+@inject IContentAutomationBridge AutomationBridge
+@inject IMaintenanceWorkflowService WorkflowService
+@inject ISystemRuntimeStateStore RuntimeStateStore
 
-<PageTitle>Home</PageTitle>
+<PageTitle>运营概览</PageTitle>
 
-<h1>Hello, world!</h1>
+<section class="bibi-page overview-page">
+    <header class="bibi-page-header overview-header">
+        <div>
+            <p class="bibi-eyebrow">今日运营</p>
+            <h1 class="bibi-title">运营概览</h1>
+            <p class="bibi-subtitle">账号、评论和养号任务的当前状态。</p>
+        </div>
+        <span class="overview-header__refresh">
+            <MudIconButton Icon="@Icons.Material.Outlined.Refresh"
+                           Color="Color.Default"
+                           Disabled="@_isRefreshing"
+                           OnClick="RefreshDetailsAsync"
+                           aria-label="刷新运营概览" />
+        </span>
+    </header>
 
-Welcome to your new app.
+    @if (!string.IsNullOrWhiteSpace(_detailMessage))
+    {
+        <div class="overview-notice">
+            <MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" />
+            <span>@_detailMessage</span>
+        </div>
+    }
+
+    <div class="overview-metrics">
+        <article class="overview-metric overview-metric--lavender">
+            <div class="overview-metric__top">
+                <span>可用账号</span>
+                <MudIcon Icon="@Icons.Material.Outlined.PeopleAlt" Size="Size.Small" />
+            </div>
+            <strong>@_runtime.AvailableAccounts</strong>
+            <small>共 @_runtime.TotalAccounts 个托管账号</small>
+        </article>
+        <article class="overview-metric overview-metric--blue">
+            <div class="overview-metric__top">
+                <span>今日评论</span>
+                <MudIcon Icon="@Icons.Material.Outlined.Forum" Size="Size.Small" />
+            </div>
+            <strong>@_runtime.TodayComments</strong>
+            <small>@SuccessfulLedgerCount 条累计发布成功</small>
+        </article>
+        <article class="overview-metric overview-metric--mint">
+            <div class="overview-metric__top">
+                <span>今日养号</span>
+                <MudIcon Icon="@Icons.Material.Outlined.AutoMode" Size="Size.Small" />
+            </div>
+            <strong>@_runtime.TodayMaintenanceRuns</strong>
+            <small>@CompletedRunCount 次流程已完成</small>
+        </article>
+        <article class="overview-metric overview-metric--neutral">
+            <div class="overview-metric__top">
+                <span>运行状态</span>
+                <MudIcon Icon="@RuntimeIcon" Size="Size.Small" />
+            </div>
+            <strong class="overview-metric__status">@RuntimeTitle</strong>
+            <small>@_runtime.Message</small>
+        </article>
+    </div>
+
+    <div class="overview-layout">
+        <div class="overview-main">
+            <section class="overview-section">
+                <div class="overview-section__header">
+                    <div>
+                        <h2>正在运行</h2>
+                        <p>当前自动任务</p>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_runtime.ActiveOperation))
+                    {
+                        <span class="bibi-status-chip bibi-status-chip--info">进行中</span>
+                    }
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_runtime.ActiveOperation))
+                {
+                    <div class="running-item">
+                        <span class="running-item__icon"><MudIcon Icon="@Icons.Material.Outlined.AccountTree" /></span>
+                        <div>
+                            <strong>@_runtime.ActiveOperation</strong>
+                            <span>养号流程正在执行</span>
+                        </div>
+                        <MudButton Href="/workflows" Variant="Variant.Text" Color="Color.Secondary" EndIcon="@Icons.Material.Filled.ChevronRight">查看</MudButton>
+                    </div>
+                }
+                else
+                {
+                    <div class="overview-empty overview-empty--compact">
+                        <MudIcon Icon="@Icons.Material.Outlined.CheckCircle" />
+                        <div>
+                            <strong>当前没有运行中的任务</strong>
+                            <span>新任务启动后会显示在这里。</span>
+                        </div>
+                    </div>
+                }
+            </section>
+
+            <section class="overview-section recent-section">
+                <div class="overview-section__header">
+                    <div>
+                        <h2>最近记录</h2>
+                        <p>评论与养号任务合并时间线</p>
+                    </div>
+                </div>
+                @if (RecentItems.Count == 0)
+                {
+                    <div class="overview-empty">
+                        <MudIcon Icon="@Icons.Material.Outlined.History" />
+                        <div>
+                            <strong>还没有运行记录</strong>
+                            <span>完成评论或养号任务后会生成记录。</span>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="recent-list">
+                        @foreach (var item in RecentItems)
+                        {
+                            <div class="recent-item">
+                                <span class="recent-item__icon"><MudIcon Icon="@item.Icon" Size="Size.Small" /></span>
+                                <div class="recent-item__body">
+                                    <strong>@item.Title</strong>
+                                    <span>@item.Description</span>
+                                </div>
+                                <time>@FormatTime(item.Time)</time>
+                                <span class="bibi-status-chip @item.StatusClass">@item.Status</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+        </div>
+
+        <aside class="overview-section attention-section">
+            <div class="overview-section__header">
+                <div>
+                    <h2>需要处理</h2>
+                    <p>@AttentionItems.Count 项待处理</p>
+                </div>
+            </div>
+            @if (AttentionItems.Count == 0)
+            {
+                <div class="overview-empty overview-empty--side">
+                    <MudIcon Icon="@Icons.Material.Outlined.Verified" />
+                    <div>
+                        <strong>暂无待处理事项</strong>
+                        <span>账号与运行服务状态正常。</span>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="attention-list">
+                    @foreach (var item in AttentionItems)
+                    {
+                        <a href="@item.Href" class="attention-item">
+                            <span class="attention-item__icon"><MudIcon Icon="@item.Icon" Size="Size.Small" /></span>
+                            <div>
+                                <strong>@item.Title</strong>
+                                <span>@item.Description</span>
+                            </div>
+                            <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" />
+                        </a>
+                    }
+                </div>
+            }
+        </aside>
+    </div>
+</section>
+
+@code {
+    private SystemRuntimeState _runtime = new();
+    private List<ContentAutomationAccount> _accounts = [];
+    private List<ContentAutomationLedgerRecord> _ledger = [];
+    private List<MaintenanceWorkflowRunRecord> _runs = [];
+    private bool _isRefreshing;
+    private string _detailMessage = "";
+
+    private int SuccessfulLedgerCount => _ledger.Count(item => IsSuccess(item.Status));
+    private int CompletedRunCount => _runs.Count(item => item.Status == MaintenanceWorkflowRunStatus.Completed);
+
+    private string RuntimeTitle => _runtime.Status switch
+    {
+        SystemRuntimeStatus.Ready => "正常",
+        SystemRuntimeStatus.Starting => "启动中",
+        SystemRuntimeStatus.NeedsAttention => "需处理",
+        _ => "已停止"
+    };
+
+    private string RuntimeIcon => _runtime.Status switch
+    {
+        SystemRuntimeStatus.Ready => Icons.Material.Outlined.CheckCircle,
+        SystemRuntimeStatus.Starting => Icons.Material.Outlined.Schedule,
+        SystemRuntimeStatus.NeedsAttention => Icons.Material.Outlined.ErrorOutline,
+        _ => Icons.Material.Outlined.StopCircle
+    };
+
+    private List<AttentionItem> AttentionItems
+    {
+        get
+        {
+            var result = new List<AttentionItem>();
+            if (_runtime.Status == SystemRuntimeStatus.NeedsAttention)
+                result.Add(new("运行服务需要处理", "打开设置查看服务状态。", "/settings", Icons.Material.Outlined.SettingsSuggest));
+            if (_runtime.TotalAccounts == 0)
+                result.Add(new("还没有托管账号", "添加账号后才能运行自动任务。", "/accounts", Icons.Material.Outlined.PersonAdd));
+            foreach (var account in _accounts.Where(account => account.Enabled && !IsLoggedIn(account.LoginStatus)).Take(3))
+                result.Add(new(account.Nickname.Length > 0 ? account.Nickname : account.Name, "登录状态需要更新。", "/accounts", Icons.Material.Outlined.PersonOff));
+            return result;
+        }
+    }
+
+    private List<RecentItem> RecentItems
+    {
+        get
+        {
+            var comments = _ledger.Select(item => new RecentItem(
+                ParseTime(item.CreatedAt),
+                Icons.Material.Outlined.Forum,
+                string.IsNullOrWhiteSpace(item.VideoTitle) ? item.Bvid : item.VideoTitle,
+                string.IsNullOrWhiteSpace(item.AccountName) ? "评论任务" : $"由 {item.AccountName} 发布",
+                IsSuccess(item.Status) ? "成功" : "未完成",
+                IsSuccess(item.Status) ? "bibi-status-chip--success" : "bibi-status-chip--warning"));
+            var workflows = _runs.Select(item => new RecentItem(
+                item.StartedAt,
+                Icons.Material.Outlined.AccountTree,
+                item.WorkflowName,
+                $"养号流程 · 成功 {item.SuccessCount} 项",
+                WorkflowStatusText(item.Status),
+                item.Status == MaintenanceWorkflowRunStatus.Completed ? "bibi-status-chip--success" :
+                    item.Status == MaintenanceWorkflowRunStatus.Failed ? "bibi-status-chip--danger" : "bibi-status-chip--info"));
+            return comments.Concat(workflows).OrderByDescending(item => item.Time).Take(10).ToList();
+        }
+    }
+
+    protected override Task OnInitializedAsync()
+    {
+        _runtime = RuntimeStateStore.Current;
+        RuntimeStateStore.Changed += OnRuntimeChanged;
+        _ = InvokeAsync(RefreshDetailsAsync);
+        return Task.CompletedTask;
+    }
+
+    private async Task RefreshDetailsAsync()
+    {
+        if (_isRefreshing)
+            return;
+        _isRefreshing = true;
+        _detailMessage = "";
+        try
+        {
+            var accountsTask = AutomationBridge.GetAccountsAsync();
+            var ledgerTask = AutomationBridge.GetLedgerAsync();
+            var runsTask = WorkflowService.GetRunsAsync();
+            await Task.WhenAll(accountsTask, ledgerTask, runsTask);
+            _accounts = (await accountsTask).ToList();
+            _ledger = (await ledgerTask).ToList();
+            _runs = (await runsTask).ToList();
+        }
+        catch
+        {
+            _detailMessage = "部分运营记录暂时无法加载，后台会继续重试。";
+        }
+        finally
+        {
+            _isRefreshing = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OnRuntimeChanged(SystemRuntimeState state)
+    {
+        _ = InvokeAsync(() =>
+        {
+            _runtime = state;
+            StateHasChanged();
+        });
+    }
+
+    private static bool IsSuccess(string status) =>
+        status?.Trim().ToLowerInvariant() is "success" or "done" or "completed";
+
+    private static bool IsLoggedIn(string status) =>
+        status?.Trim().ToLowerInvariant() is "ok" or "logged_in" or "success";
+
+    private static DateTimeOffset ParseTime(string value) =>
+        DateTimeOffset.TryParse(value, out var time) ? time : DateTimeOffset.MinValue;
+
+    private static string FormatTime(DateTimeOffset time)
+    {
+        if (time == DateTimeOffset.MinValue)
+            return "";
+        return time.LocalDateTime.Date == DateTime.Today
+            ? time.LocalDateTime.ToString("HH:mm")
+            : time.LocalDateTime.ToString("MM-dd HH:mm");
+    }
+
+    private static string WorkflowStatusText(MaintenanceWorkflowRunStatus status) => status switch
+    {
+        MaintenanceWorkflowRunStatus.Completed => "完成",
+        MaintenanceWorkflowRunStatus.Failed => "失败",
+        MaintenanceWorkflowRunStatus.Cancelled => "已停止",
+        MaintenanceWorkflowRunStatus.Running => "运行中",
+        _ => "等待中"
+    };
+
+    public void Dispose()
+    {
+        RuntimeStateStore.Changed -= OnRuntimeChanged;
+    }
+
+    private sealed record AttentionItem(string Title, string Description, string Href, string Icon);
+    private sealed record RecentItem(DateTimeOffset Time, string Icon, string Title, string Description, string Status, string StatusClass);
+}

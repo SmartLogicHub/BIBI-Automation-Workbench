@@ -1,7 +1,4 @@
-@page "/Configurations/LiveFansMedalTaskConfig"
-@using Microsoft.AspNetCore.Authorization
 @using Ray.BiliBiliTool.Config.Options;
-@attribute [Authorize]
 @rendermode InteractiveServer
 @inherits BaseConfigComponent<LiveFansMedalTaskOptions>
 
@@ -98,8 +95,3 @@
         }
     }
 </MudContainer>
-
-<MudThemeProvider/>
-<MudPopoverProvider/>
-<MudDialogProvider/>
-<MudSnackbarProvider/>
