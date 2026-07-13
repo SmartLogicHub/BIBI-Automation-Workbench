@@ -389,6 +389,7 @@ output/
 Logs/
 .codex-verify/
 .playwright-cli/
+.worktrees/
 docs/superpowers/
 *.err.log
 *.out.log
