@@ -1,0 +1,6 @@
+interface:
+  display_name: "BIBI Automation Workbench"
+  short_description: "Repo-specific patterns and workflows for BIBI-Automation-Workbench"
+  default_prompt: "Use the BIBI-Automation-Workbench repo skill to follow existing architecture, testing, and workflow conventions."
+policy:
+  allow_implicit_invocation: true
