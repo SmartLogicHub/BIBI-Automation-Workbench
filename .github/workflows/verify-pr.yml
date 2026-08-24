@@ -5,6 +5,7 @@ on:
 
 jobs:
   checkTargetBranch:
+    if: ${{ github.repository == 'RayWangQvQ/BiliBiliToolPro' }}
     runs-on: ubuntu-latest
     steps:
       - uses: Vankka/pr-target-branch-action@v3
