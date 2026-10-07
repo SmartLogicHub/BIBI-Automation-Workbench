@@ -173,6 +173,7 @@ public class ContentAutomationStrategyService : IContentAutomationStrategyServic
             CommentMode = mode,
             LibraryId = strategy.LibraryId?.Trim() ?? "",
             Keywords = NormalizeList(strategy.Keywords),
+            ExcludeKeywords = NormalizeList(strategy.ExcludeKeywords),
             AccountIds = NormalizeList(strategy.AccountIds),
             Rules = strategy.Rules?.Trim() ?? "",
             Year = string.IsNullOrWhiteSpace(strategy.Year)

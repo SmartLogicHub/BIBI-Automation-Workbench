@@ -206,6 +206,27 @@ try
 catch (Exception ex)
 {
     Log.Fatal(ex, "Application terminated unexpectedly");
+
+    try
+    {
+        var startupErrorPath = Path.Combine(AppContext.BaseDirectory, "BIBI-startup-error.txt");
+        File.WriteAllText(
+            startupErrorPath,
+            $"BIBI failed to start at {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}.{Environment.NewLine}{Environment.NewLine}{ex}"
+        );
+
+        var notepad = new ProcessStartInfo
+        {
+            FileName = "notepad.exe",
+            UseShellExecute = true,
+        };
+        notepad.ArgumentList.Add(startupErrorPath);
+        Process.Start(notepad);
+    }
+    catch
+    {
+        // Avoid hiding the original startup failure if writing or opening the diagnostic log fails.
+    }
 }
 finally
 {

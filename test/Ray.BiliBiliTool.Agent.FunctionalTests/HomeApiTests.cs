@@ -25,7 +25,7 @@ public class HomeApiTests
         _api = host.Services.GetRequiredService<IHomeApi>();
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task GetHomePageAsync_Normal_Success()
     {
         // Act

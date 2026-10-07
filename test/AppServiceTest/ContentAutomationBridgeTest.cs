@@ -87,6 +87,7 @@ public class ContentAutomationBridgeTest
             Assert.Equal(3, root.GetProperty("maxCount").GetInt32());
             Assert.Equal("7", root.GetProperty("libraryId").GetString());
             Assert.Equal("mouse", root.GetProperty("keywords")[0].GetString());
+            Assert.Equal("edifier", root.GetProperty("excludeKeywords")[0].GetString());
             Assert.Equal("1", root.GetProperty("accountIds")[0].GetString());
             Assert.Equal("BV1xx411c7mD", root.GetProperty("manualUrls")[0].GetString());
             Assert.Equal(
@@ -109,6 +110,7 @@ public class ContentAutomationBridgeTest
             {
                 DryRun = false,
                 Keywords = ["mouse"],
+                ExcludeKeywords = ["edifier"],
                 Year = "2026",
                 Limit = 12,
                 Rules = "2026 only",

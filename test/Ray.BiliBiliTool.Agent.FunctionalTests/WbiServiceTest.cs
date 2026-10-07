@@ -24,7 +24,7 @@ public class WbiServiceTest
         _target = host.Services.GetRequiredService<IWbiService>();
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async void SetWridAsync_SendRequest_SetWridSuccess()
     {
         // Arrange

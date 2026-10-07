@@ -32,7 +32,7 @@ public class VipBigPointApiTest
         _api = host.Services.GetRequiredService<IVipBigPointApi>();
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task GetTaskListAsync_Normal_Success()
     {
         // Arrange
@@ -45,7 +45,7 @@ public class VipBigPointApiTest
         re.Data.Task_info.Modules.Should().HaveCountGreaterThan(0);
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task SignAsync_Normal_Success()
     {
         // Arrange
@@ -60,7 +60,7 @@ public class VipBigPointApiTest
         re.Message.Should().BeEquivalentTo("success");
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task GetVouchersInfoAsync_Normal_Success()
     {
         // Arrange
@@ -72,7 +72,7 @@ public class VipBigPointApiTest
         re.Data.List.Should().Contain(x => x.Type == 9);
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task GetVipExperienceAsync_Normal_Success()
     {
         // Arrange
@@ -93,7 +93,7 @@ public class VipBigPointApiTest
             );
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task CompleteAsync_Normal_Success()
     {
         // Arrange

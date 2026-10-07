@@ -215,9 +215,9 @@
                                 <MudButton Variant="Variant.Outlined"
                                            Color="Color.Primary"
                                            StartIcon="@Icons.Material.Outlined.AccountCircle"
-                                           Disabled="@_openingTargetKeys.Contains(CommentTargetKey(comment))"
-                                           OnClick="@(() => OpenCommentTargetAsync(comment))">
-                                    用账号“@AccountName(comment)”查看评论
+                                            Disabled="@_openingTargetKeys.Contains(CommentTargetKey(comment))"
+                                            OnClick="@(() => OpenCommentTargetAsync(comment))">
+                                     @(RequiresManualAccountAction(comment) ? "打开验证页面" : $"用账号“{AccountName(comment)}”查看评论")
                                 </MudButton>
                             }
                             @if (!string.IsNullOrWhiteSpace(CommentOpenUrl(comment)))
@@ -587,6 +587,8 @@
         var status = comment.Status?.Trim().ToLowerInvariant() ?? "";
         if (IsCommentConfirmed(comment))
             return ("confirmed", "平台已确认");
+        if (status is "captcha_or_verify" or "verify_required" or "login_required")
+            return ("pending", status == "login_required" ? "需要登录" : "需要验证");
         if (status is "submitted_unverified" or "manual_required" or "pending" or "running")
             return ("pending", status == "running" ? "发布中" : "待核验");
         if (status is "failed" or "error")
@@ -619,11 +621,20 @@
     private static bool IsCommentPending(ContentAutomationLedgerRecord comment)
     {
         var status = comment.Status?.Trim().ToLowerInvariant() ?? "";
-        return status is "submitted_unverified" or "manual_required" or "pending" or "running";
+        return status is "submitted_unverified" or "manual_required" or "pending" or "running"
+            or "captcha_or_verify" or "verify_required" or "login_required";
     }
+
+    private static bool RequiresManualAccountAction(ContentAutomationLedgerRecord comment) =>
+        comment.Status?.Trim().ToLowerInvariant() is "captcha_or_verify" or "verify_required" or "login_required";
 
     private static string CommentProofTitle(ContentAutomationLedgerRecord comment)
     {
+        var rawStatus = comment.Status?.Trim().ToLowerInvariant() ?? "";
+        if (rawStatus == "login_required")
+            return "账号需要重新登录";
+        if (rawStatus is "captcha_or_verify" or "verify_required")
+            return "检测到安全验证";
         var status = CommentStatus(comment);
         return status.Category switch
         {
@@ -651,7 +662,9 @@
     }
 
     private static string CommentProofIcon(ContentAutomationLedgerRecord comment) =>
-        CommentStatus(comment).Category switch
+        RequiresManualAccountAction(comment)
+            ? Icons.Material.Outlined.Security
+            : CommentStatus(comment).Category switch
         {
             "confirmed" => Icons.Material.Outlined.Verified,
             "pending" => Icons.Material.Outlined.Schedule,

@@ -702,7 +702,11 @@
     }
 
     private static string LoginActionText(ContentAutomationAccount account) =>
-        AutomationAccountSelection.IsAvailable(account) ? "重新登录" : "打开登录";
+        account.LoginStatus?.Trim().ToLowerInvariant() switch
+        {
+            "verify_required" or "verify" or "captcha_or_verify" => "处理验证",
+            _ => AutomationAccountSelection.IsAvailable(account) ? "重新登录" : "打开登录"
+        };
 
     private static bool IsLoggedIn(string status) =>
         status?.Trim().ToLowerInvariant() is "ok" or "logged_in" or "success";
@@ -710,7 +714,7 @@
     private static string GetLoginStatusClass(string status) => status?.Trim().ToLowerInvariant() switch
     {
         "ok" or "logged_in" or "success" => "bibi-status-chip--success",
-        "verify_required" => "bibi-status-chip--warning",
+        "verify_required" or "verify" or "captcha_or_verify" => "bibi-status-chip--warning",
         "login_required" or "failed" or "error" => "bibi-status-chip--danger",
         _ => ""
     };
@@ -718,7 +722,7 @@
     private static string GetStatusText(string? status) => status?.Trim().ToLowerInvariant() switch
     {
         "ok" or "logged_in" or "success" => "可用",
-        "verify_required" => "需要验证",
+        "verify_required" or "verify" or "captcha_or_verify" => "需要验证",
         "login_required" => "需要登录",
         "failed" or "error" => "异常",
         _ => "未检查"

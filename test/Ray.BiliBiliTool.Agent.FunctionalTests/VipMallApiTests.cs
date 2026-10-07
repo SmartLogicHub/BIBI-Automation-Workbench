@@ -27,7 +27,7 @@ public class VipMallApiTests
         _api = host.Services.GetRequiredService<IVipMallApi>();
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task ViewVipMallAsync_Normal_Success()
     {
         // Arrange

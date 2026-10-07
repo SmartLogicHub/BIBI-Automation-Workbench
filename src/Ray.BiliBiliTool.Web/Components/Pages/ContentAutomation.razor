@@ -69,8 +69,9 @@
                        StartIcon="@Icons.Material.Filled.Stop"
                        Class="comment-primary-action"
                        aria-label="停止自动运行"
+                       Disabled="@IsStopping"
                        OnClick="StopJobAsync">
-                停止运行
+                @(IsStopping ? "正在停止" : "停止运行")
             </MudButton>
         }
         else
@@ -348,6 +349,7 @@
             <section class="strategy-section">
                 <div class="strategy-section__title"><span>1</span><h3>视频来源</h3></div>
                 <MudTextField T="string" @bind-Value="_keywordsText" Label="监控关键词" Lines="4" Placeholder="每行一个关键词" Variant="Variant.Outlined" Immediate="true" />
+                <MudTextField T="string" @bind-Value="_excludeKeywordsText" Label="排除关键词（可选）" Lines="3" Placeholder="每行一个；匹配标题、简介或 UP 主" Variant="Variant.Outlined" Immediate="true" Class="mt-3" />
                 <MudTextField T="string" @bind-Value="_importUrlsText" Label="指定视频（可选）" Lines="3" Placeholder="每行一个视频链接或 BV 号" Variant="Variant.Outlined" Immediate="true" Class="mt-3" />
             </section>
 
@@ -502,6 +504,7 @@
     private Severity _messageSeverity = Severity.Info;
     private string _commentMode = "template";
     private string _keywordsText = "";
+    private string _excludeKeywordsText = "";
     private string _importUrlsText = "";
     private string _aiPreview = "";
     private string _activeJobId = "";
@@ -554,6 +557,7 @@
         ? $"{VerifiedLedgerCount} 条已确认 · {PendingLedgerCount} 条待核验"
         : $"{VerifiedLedgerCount} 条已确认";
     private bool HasActiveJob => !string.IsNullOrWhiteSpace(_activeJobId) && !IsTerminal(_currentJob.Status);
+    private bool IsStopping => _currentJob.Status?.Trim().Equals("stopping", StringComparison.OrdinalIgnoreCase) == true;
     private bool HasSource => PendingVideos.Count > 0 || Lines(_keywordsText).Count > 0 || Lines(_importUrlsText).Count > 0;
     private bool HasCommentSource => _commentMode != "template" || SelectedLibrary is { TemplateCount: > 0 };
     private ContentAutomationLibrary? SelectedLibrary => _libraries.FirstOrDefault(item => item.Id == _workflow.LibraryId);
@@ -693,6 +697,7 @@
                 CommentMode = _commentMode,
                 LibraryId = _workflow.LibraryId,
                 Keywords = Lines(_keywordsText),
+                ExcludeKeywords = Lines(_excludeKeywordsText),
                 AccountIds = _selectedAccountIds.ToList(),
                 Rules = _workflow.Rules,
                 Year = _workflow.Year,
@@ -736,6 +741,7 @@
         ApplyTimingValuesToWorkflow();
         _workflow.CommentMode = _commentMode;
         _workflow.Keywords = Lines(_keywordsText).Count > 0 ? Lines(_keywordsText) : ["manual-import"];
+        _workflow.ExcludeKeywords = Lines(_excludeKeywordsText);
         _workflow.AccountIds = ParticipatingAccounts.Select(account => account.Id).ToList();
         _workflow.ManualUrls = Lines(_importUrlsText);
         _isBusy = true;
@@ -770,10 +776,8 @@
         try
         {
             _currentJob = await AutomationBridge.StopJobAsync(_activeJobId);
-            StopPolling();
-            await RefreshRunEvidenceAsync();
             await InvokeAsync(StateHasChanged);
-            SetMessage("自动评论已停止。", Severity.Warning);
+            SetMessage("正在停止自动评论，等待当前浏览器操作安全退出。", Severity.Warning);
         }
         catch
         {
@@ -1157,6 +1161,7 @@
     {
         _commentMode = strategy.CommentMode;
         _keywordsText = string.Join(Environment.NewLine, strategy.Keywords);
+        _excludeKeywordsText = string.Join(Environment.NewLine, strategy.ExcludeKeywords);
         _selectedAccountIds = strategy.AccountIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
         _workflow.LibraryId = strategy.LibraryId.StartsWith("__AI__", StringComparison.OrdinalIgnoreCase) ? "" : strategy.LibraryId;
         _workflow.Rules = strategy.Rules;
@@ -1254,6 +1259,8 @@
     private static string FormatTime(string value) => DateTimeOffset.TryParse(value, out var time) ? (time.LocalDateTime.Date == DateTime.Today ? time.LocalDateTime.ToString("HH:mm") : time.LocalDateTime.ToString("MM-dd HH:mm")) : "";
     private static bool HasPlatformProof(ContentAutomationLedgerRecord item) =>
         IsSuccess(item.Status) && item.VerificationMethod?.Trim().ToLowerInvariant() is "comment_visible" or "success_notice";
+    private static bool RequiresManualAccountAction(ContentAutomationLedgerRecord item) =>
+        item.Status?.Trim().ToLowerInvariant() is "captcha_or_verify" or "verify_required" or "login_required";
     private static bool IsPendingConfirmation(ContentAutomationLedgerRecord item) =>
         item.Status?.Trim().ToLowerInvariant() == "submitted_unverified";
     private static string EvidenceTime(ContentAutomationLedgerRecord item) =>
@@ -1265,16 +1272,18 @@
         : !string.IsNullOrWhiteSpace(item.Bvid) ? $"https://www.bilibili.com/video/{item.Bvid}" : "#";
     private static string LedgerStatusText(ContentAutomationLedgerRecord item) =>
         HasPlatformProof(item) ? "平台已确认"
+        : RequiresManualAccountAction(item) ? item.Status?.Trim().ToLowerInvariant() == "login_required" ? "需要登录" : "需要验证"
         : IsPendingConfirmation(item) ? "待核验"
         : IsSuccess(item.Status) ? "历史记录"
         : item.Status?.Trim().ToLowerInvariant() == "skipped" ? "已跳过"
         : "未完成";
     private static string LedgerStatusClass(ContentAutomationLedgerRecord item) =>
         HasPlatformProof(item) ? "bibi-status-chip--success"
-        : IsPendingConfirmation(item) || IsSuccess(item.Status) || item.Status?.Trim().ToLowerInvariant() == "skipped" ? "bibi-status-chip--warning"
+        : RequiresManualAccountAction(item) || IsPendingConfirmation(item) || IsSuccess(item.Status) || item.Status?.Trim().ToLowerInvariant() == "skipped" ? "bibi-status-chip--warning"
         : "bibi-status-chip--danger";
     private static string LedgerProofTitle(ContentAutomationLedgerRecord item) =>
         HasPlatformProof(item) ? "站内结果已核验"
+        : RequiresManualAccountAction(item) ? item.Status?.Trim().ToLowerInvariant() == "login_required" ? "账号需要重新登录" : "检测到安全验证"
         : IsPendingConfirmation(item) ? "等待人工核验"
         : IsSuccess(item.Status) ? "历史记录无站内凭证"
         : item.Status?.Trim().ToLowerInvariant() == "skipped" ? "本次没有提交"
@@ -1285,9 +1294,10 @@
         : IsSuccess(item.Status) ? "该记录由旧版本生成，无法证明评论仍在站内。"
         : "未获得可核验的页面结果。";
     private static string LedgerProofClass(ContentAutomationLedgerRecord item) =>
-        HasPlatformProof(item) ? "is-confirmed" : IsPendingConfirmation(item) || IsSuccess(item.Status) ? "is-pending" : "is-failed";
+        HasPlatformProof(item) ? "is-confirmed" : RequiresManualAccountAction(item) || IsPendingConfirmation(item) || IsSuccess(item.Status) ? "is-pending" : "is-failed";
     private static string LedgerProofIcon(ContentAutomationLedgerRecord item) =>
         HasPlatformProof(item) ? Icons.Material.Outlined.Verified
+        : RequiresManualAccountAction(item) ? Icons.Material.Outlined.Security
         : IsPendingConfirmation(item) || IsSuccess(item.Status) ? Icons.Material.Outlined.Schedule
         : Icons.Material.Outlined.ErrorOutline;
     private static string EventTitle(ContentAutomationJobEvent? item) => item is null ? "等待任务启动" : item.Status?.Trim().ToLowerInvariant() is "error" or "failed" ? "需要处理" : item.EventType?.Trim().ToLowerInvariant() == "warning" ? "已跳过一项" : "任务进度";

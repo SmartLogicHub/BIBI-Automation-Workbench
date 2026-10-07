@@ -22,7 +22,7 @@ namespace LogTest
             _chatId = Global.ConfigurationRoot?["Serilog:WriteTo:3:Args:chatId"];
         }
 
-        [Fact]
+        [ExternalWebhookFact]
         public async Task Test2()
         {
             var client = new TelegramApiClient(_botToken, _chatId);

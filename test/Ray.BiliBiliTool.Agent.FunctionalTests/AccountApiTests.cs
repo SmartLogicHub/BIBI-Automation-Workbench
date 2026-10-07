@@ -23,7 +23,7 @@ public class AccountApiTests
         _api = host.Services.GetRequiredService<IAccountApi>();
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task GetCoinBalance_Normal_GetCoinBalance()
     {
         // Act

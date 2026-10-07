@@ -32,7 +32,7 @@ public class ArticleApiTests
 
     #region SearchUpArticlesByUpIdAsync
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task SearchUpArticlesByUpIdAsync_InputId_GetResultSuccess()
     {
         // Arrange
@@ -52,7 +52,7 @@ public class ArticleApiTests
 
     #region SearchArticleInfoAsync
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task SearchArticleInfoAsync_ValidId_GetResultSuccess()
     {
         // Arrange
@@ -67,7 +67,7 @@ public class ArticleApiTests
         re.Data.Like.Should().BeGreaterThanOrEqualTo(1);
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task SearchArticleInfoAsync_InvalidId_NoResult()
     {
         // Arrange
@@ -87,7 +87,7 @@ public class ArticleApiTests
 
     #region AddCoinForArticleAsync
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task AddCoinForArticleAsync_CoinSelf_Fail()
     {
         // Arrange
@@ -102,7 +102,7 @@ public class ArticleApiTests
         re.Message.Should().BeEquivalentTo("up主不能自己投币");
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task AddCoinForArticleAsync_Normal_Success()
     {
         // Arrange
@@ -125,7 +125,7 @@ public class ArticleApiTests
 
     #region LikeAsync
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task LikeAsync_AlreadyLike_GetResultSuccess()
     {
         // Arrange

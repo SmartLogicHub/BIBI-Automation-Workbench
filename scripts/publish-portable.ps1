@@ -95,6 +95,11 @@ function Remove-DevelopmentArtifacts {
 
     Remove-PackageItemIfExists -Path (Join-Path $PackageRoot "Runtime\python\Lib\test")
     Remove-PackageItemIfExists -Path (Join-Path $PackageRoot "Runtime\python\Lib\idlelib\idle_test")
+    Remove-PackageItemIfExists -Path (Join-Path $PackageRoot "Runtime\python\Lib\unittest\test")
+    Remove-PackageItemIfExists -Path (Join-Path $PackageRoot "Runtime\python\Lib\lib2to3\tests")
+    Remove-PackageItemIfExists -Path (Join-Path $PackageRoot "Runtime\python\Lib\tkinter\test")
+    Remove-PackageItemIfExists -Path (Join-Path $PackageRoot "Runtime\python\Lib\distutils\tests")
+    Remove-PackageItemIfExists -Path (Join-Path $PackageRoot "Runtime\python\Lib\ctypes\test")
     Remove-PackageItemIfExists -Path (Join-Path $PackageRoot "Runtime\python\Lib\site-packages\greenlet\tests")
     Remove-PackageItemIfExists -Path (Join-Path $PackageRoot "Runtime\python\Lib\site-packages\openpyxl\tests")
 }

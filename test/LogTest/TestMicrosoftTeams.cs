@@ -22,7 +22,7 @@ namespace LogTest
             _webhook = Global.ConfigurationRoot["Serilog:WriteTo:10:Args:webhook"];
         }
 
-        [Fact]
+        [ExternalWebhookFact]
         public async Task Test()
         {
             var client = new MicrosoftTeamsApiClient(webhook: _webhook);

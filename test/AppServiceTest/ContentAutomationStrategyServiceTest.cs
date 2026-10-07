@@ -20,6 +20,7 @@ public class ContentAutomationStrategyServiceTest
                     CommentMode = " deepseek ",
                     LibraryId = " library-1 ",
                     Keywords = [" 耳机 ", "耳机", "", "降噪"],
+                    ExcludeKeywords = [" 漫步者 ", "漫步者", " EDIFIER "],
                     AccountIds = [" 1001 ", "1001", "1002"],
                     Rules = " 只生成自然短评 ",
                     SearchLimit = 999,
@@ -39,6 +40,7 @@ public class ContentAutomationStrategyServiceTest
 
             Assert.Equal("deepseek", saved.CommentMode);
             Assert.Equal(["耳机", "降噪"], loaded.Keywords);
+            Assert.Equal(["漫步者", "EDIFIER"], loaded.ExcludeKeywords);
             Assert.Equal(["1001", "1002"], loaded.AccountIds);
             Assert.Equal("library-1", loaded.LibraryId);
             Assert.Equal("只生成自然短评", loaded.Rules);
@@ -69,6 +71,7 @@ public class ContentAutomationStrategyServiceTest
 
         Assert.Equal("template", strategy.CommentMode);
         Assert.True(strategy.SearchLimit > 0);
+        Assert.Empty(strategy.ExcludeKeywords);
         Assert.True(strategy.PublishLimit > 0);
         Assert.True(strategy.DurationMinutes > 0);
         Assert.True(strategy.CycleIntervalMinutes > 0);

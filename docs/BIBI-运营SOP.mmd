@@ -1,0 +1,55 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "fontFamily": "Microsoft YaHei, Segoe UI, sans-serif",
+    "primaryTextColor": "#182033",
+    "lineColor": "#8B95AA",
+    "clusterBkg": "#F7F8FC",
+    "clusterBorder": "#D9DEEA"
+  },
+  "flowchart": { "curve": "basis", "nodeSpacing": 42, "rankSpacing": 48 }
+}}%%
+
+flowchart TB
+  START(["开始运营"]) --> A1["1　启动 BIBI 工作台"]
+  A1 --> A2["2　进入账号管理<br/>添加账号并完成登录"]
+  A2 --> A3["3　确认账号状态正常"]
+  A3 --> A4["4　进入设置配置 AI API<br/>填写 API Key、模型名称和 API 地址<br/>验证连接并保存<br/>用于筛选候选视频和生成 AI 评论"]
+  A4 --> MODE{"5　选择运营任务"}
+
+  subgraph COMMENT["评论引流"]
+    direction TB
+    C1["进入评论引流"] --> C2["设置视频来源<br/>关键词或指定视频"]
+    C2 --> C3["选择评论方式和参与账号"]
+    C3 --> C4["设置发布数量与运行间隔"]
+    C4 --> C5["保存并运行"]
+  end
+
+  subgraph FARM["养号流程"]
+    direction TB
+    W1["进入养号流程"] --> W2["新建或选择流程"]
+    W2 --> W3["添加动作节点并选择参与账号"]
+    W3 --> W4["保存并运行流程"]
+  end
+
+  MODE -- "评论引流" --> C1
+  MODE -- "养号流程" --> W1
+
+  C5 --> R1["6　进入运行记录"]
+  W4 --> R1
+  R1 --> R2["7　查看执行结果与发布凭证"]
+  R2 --> END(["本轮运营完成"])
+
+  classDef startend fill:#20273A,color:#FFFFFF,stroke:#20273A,stroke-width:2px;
+  classDef common fill:#FFFFFF,color:#182033,stroke:#B9C1D2,stroke-width:1.5px;
+  classDef decision fill:#FFF6E6,color:#694800,stroke:#E3B75E,stroke-width:1.6px;
+  classDef comment fill:#F2EEFF,color:#4E3B81,stroke:#A996D8,stroke-width:1.5px;
+  classDef farming fill:#EAF7F1,color:#245B43,stroke:#7DB597,stroke-width:1.5px;
+  classDef record fill:#EDF4FF,color:#2A4D83,stroke:#88A7D8,stroke-width:1.5px;
+
+  class START,END startend;
+  class A1,A2,A3,A4 common;
+  class MODE decision;
+  class C1,C2,C3,C4,C5 comment;
+  class W1,W2,W3,W4 farming;
+  class R1,R2 record;

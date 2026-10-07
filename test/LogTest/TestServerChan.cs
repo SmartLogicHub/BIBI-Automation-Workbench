@@ -24,7 +24,7 @@ namespace LogTest
             _turboScKey = Global.ConfigurationRoot["Serilog:WriteTo:6:Args:turboScKey"];
         }
 
-        [Fact]
+        [ExternalWebhookFact]
         public async Task Test()
         {
             var client = new ServerChanApiClient(_scKey);
@@ -39,7 +39,7 @@ namespace LogTest
              */
         }
 
-        [Fact]
+        [ExternalWebhookFact]
         public async Task TestTurbo()
         {
             var client = new ServerChanTurboApiClient(_turboScKey);

@@ -117,6 +117,9 @@ class AccountTargetTests(unittest.TestCase):
         self.assertTrue(active.stop_requested)
         self.assertTrue(queued.stop_requested)
         self.assertFalse(completed.stop_requested)
+        self.assertEqual(active.status, "stopping")
+        self.assertEqual(queued.status, "stopping")
+        self.assertEqual(active.events[-1]["event"], "stopping")
         self.assertEqual(manager.request_stop_all(), 0)
 
     def test_open_action_uses_resolved_account_and_validated_target(self):

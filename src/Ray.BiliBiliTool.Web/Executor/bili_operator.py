@@ -43,6 +43,7 @@ STATUS_LOGIN_REQUIRED = "login_required"
 STATUS_VERIFY = "captcha_or_verify"
 STATUS_COMMENT_CLOSED = "comment_closed"
 STATUS_FAILED = "failed"
+STATUS_STOPPED = "stopped"
 
 
 COMMENT_INPUT_SELECTORS = [
@@ -121,6 +122,19 @@ COMMENT_CLOSED_KEYWORDS = ["评论区已关闭", "已关闭评论", "无法评�
 SUCCESS_HINT_KEYWORDS = ["评论成功", "发布成功", "发送成功", "评论已发布"]
 FAILURE_HINT_KEYWORDS = ["评论失败", "发布失败", "发送失败", "请稍后再试", "过于频繁", "内容违规", "包含敏感", "风控"]
 SEARCH_BLOCKING_KEYWORDS = ["验证码", "安全验证", "人机验证", "访问异常", "请求过于频繁", "风控", "请完成验证"]
+RISK_SURFACE_SELECTORS = [
+    "iframe[src*='captcha']",
+    "iframe[src*='verify']",
+    "iframe[src*='geetest']",
+    "[class*='captcha']",
+    "[id*='captcha']",
+    "[class*='geetest']",
+    "[id*='geetest']",
+    "[class*='verify']",
+    "[id*='verify']",
+    "[class*='risk']",
+    "[id*='risk']",
+]
 
 DEFAULT_HUMAN_TYPE_MIN_DELAY_MS = 80
 DEFAULT_HUMAN_TYPE_MAX_DELAY_MS = 180
@@ -311,7 +325,9 @@ class BiliOperator:
             )
         return items
 
-    def publish_comment(self, account, video_url, comment_text, on_prepared=None):
+    def publish_comment(self, account, video_url, comment_text, on_prepared=None, should_stop=None):
+        if self._is_stop_requested(should_stop):
+            return self._stopped_result()
         proxy_config = None
         if hasattr(account, "proxy") and account.proxy:
             proxy_config = _parse_proxy(account.proxy)
@@ -321,13 +337,23 @@ class BiliOperator:
                 context = launch_persistent_browser_context(playwright, account.user_data_dir, self.browser_config, proxy=proxy_config)
                 try:
                     page = context.pages[0] if context.pages else context.new_page()
-                    return self._publish_comment_on_page(page, video_url, comment_text, on_prepared=on_prepared)
+                    return self._publish_comment_on_page(
+                        page,
+                        video_url,
+                        comment_text,
+                        on_prepared=on_prepared,
+                        should_stop=should_stop,
+                    )
                 finally:
                     context.close()
 
-    def _publish_comment_on_page(self, page, video_url, comment_text, on_prepared=None):
+    def _publish_comment_on_page(self, page, video_url, comment_text, on_prepared=None, should_stop=None):
         try:
+            if self._is_stop_requested(should_stop):
+                return self._stopped_result()
             page.goto(video_url, wait_until="domcontentloaded", timeout=45000)
+            if self._is_stop_requested(should_stop):
+                return self._stopped_result()
             try:
                 page.wait_for_load_state("networkidle", timeout=15000)
             except PlaywrightTimeoutError:
@@ -337,7 +363,8 @@ class BiliOperator:
             if blocking_status:
                 return blocking_status
 
-            self._scroll_to_comment_area(page)
+            if not self._scroll_to_comment_area(page, should_stop=should_stop):
+                return self._stopped_result()
             blocking_status = self._detect_blocking_status(page)
             if blocking_status:
                 return blocking_status
@@ -348,11 +375,14 @@ class BiliOperator:
             if input_locator is None:
                 return OperatorResult(STATUS_COMMENT_CLOSED, "没有找到可用的评论输入框")
 
-            self._fill_comment_input(page, input_locator, comment_text)
+            if not self._fill_comment_input(page, input_locator, comment_text, should_stop=should_stop):
+                return self._stopped_result()
             if on_prepared:
                 on_prepared()
+            if self._is_stop_requested(should_stop):
+                return self._stopped_result()
             auto_submitted = self._config_enabled("auto_submit")
-            submit_result = self._auto_click_submit_if_enabled(page)
+            submit_result = self._auto_click_submit_if_enabled(page, should_stop=should_stop)
             if submit_result:
                 return submit_result
             return self._wait_for_publish_result(
@@ -362,6 +392,7 @@ class BiliOperator:
                 before_count,
                 auto_submitted=auto_submitted,
                 before_comment_id=before_evidence.get("comment_id") if before_evidence else "",
+                should_stop=should_stop,
             )
         except PlaywrightTimeoutError as error:
             return OperatorResult(STATUS_FAILED, f"页面加载或等待超时：{error}")
@@ -370,20 +401,66 @@ class BiliOperator:
         except Exception as error:
             return OperatorResult(STATUS_FAILED, str(error))
 
+    @staticmethod
+    def _is_stop_requested(should_stop):
+        try:
+            return bool(should_stop and should_stop())
+        except Exception:
+            return False
+
+    @staticmethod
+    def _stopped_result():
+        return OperatorResult(STATUS_STOPPED, "任务已停止，未继续提交评论")
+
     def _detect_blocking_status(self, page):
         text = self._safe_body_text(page)
-        if any(keyword in text for keyword in VERIFY_KEYWORDS):
-            return OperatorResult(STATUS_VERIFY, "页面出现验证码或安全验证提示")
+        page_url = str(getattr(page, "url", "") or "")
+        if any(keyword in text for keyword in VERIFY_KEYWORDS) or self._has_visible_risk_surface(page):
+            return OperatorResult(
+                STATUS_VERIFY,
+                "页面出现验证码或安全验证提示",
+                verification_method="manual_security_check",
+                proof_text="已暂停该账号的自动发布，请打开验证页面完成安全验证后再继续。",
+                comment_url=page_url,
+            )
         if any(keyword in text for keyword in COMMENT_CLOSED_KEYWORDS):
             return OperatorResult(STATUS_COMMENT_CLOSED, "评论区关闭或无法评论")
-        if any(keyword in text for keyword in LOGIN_KEYWORDS):
-            return OperatorResult(STATUS_LOGIN_REQUIRED, "登录失效或需要登录后评论")
+        if any(keyword in text for keyword in LOGIN_KEYWORDS) or self._is_login_redirect(page_url):
+            return OperatorResult(
+                STATUS_LOGIN_REQUIRED,
+                "登录失效或需要登录后评论",
+                verification_method="manual_login",
+                proof_text="已暂停该账号的自动发布，请重新登录后再继续。",
+                comment_url=page_url,
+            )
         return None
 
-    def _scroll_to_comment_area(self, page):
+    @staticmethod
+    def _is_login_redirect(page_url):
+        normalized = str(page_url or "").lower()
+        return "passport.bilibili.com" in normalized and "login" in normalized
+
+    @staticmethod
+    def _has_visible_risk_surface(page):
+        for selector in RISK_SURFACE_SELECTORS:
+            try:
+                locator = page.locator(selector)
+                first = getattr(locator, "first", locator)
+                count = getattr(first, "count", 0)
+                count = count() if callable(count) else int(count or 0)
+                if count and first.is_visible(timeout=500):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _scroll_to_comment_area(self, page, should_stop=None):
         for _ in range(5):
+            if self._is_stop_requested(should_stop):
+                return False
             page.mouse.wheel(0, 900)
             page.wait_for_timeout(500)
+        return not self._is_stop_requested(should_stop)
 
     def _find_comment_input(self, page):
         shadow_locator = self._find_bili_shadow_comment_input(page)
@@ -398,20 +475,26 @@ class BiliOperator:
                 continue
         return None
 
-    def _auto_click_submit_if_enabled(self, page):
+    def _auto_click_submit_if_enabled(self, page, should_stop=None):
+        if self._is_stop_requested(should_stop):
+            return self._stopped_result()
         if not self._config_enabled("auto_submit"):
             return None
         submit_button = self._find_comment_submit_button(page)
         if submit_button is None:
             return OperatorResult(STATUS_FAILED, "没有找到可点击的评论提交按钮")
         if self._config_enabled("human_like_submit"):
-            self._wait_random_ms(
+            if not self._wait_random_ms(
                 page,
                 "human_pause_before_submit_min_ms",
                 "human_pause_before_submit_max_ms",
                 DEFAULT_HUMAN_PAUSE_BEFORE_SUBMIT_MIN_MS,
                 DEFAULT_HUMAN_PAUSE_BEFORE_SUBMIT_MAX_MS,
-            )
+                should_stop=should_stop,
+            ):
+                return self._stopped_result()
+        if self._is_stop_requested(should_stop):
+            return self._stopped_result()
         click_delay = self._config_int("human_click_delay_ms", DEFAULT_HUMAN_CLICK_DELAY_MS)
         try:
             submit_button.click(timeout=5000, delay=click_delay)
@@ -434,13 +517,18 @@ class BiliOperator:
         except (TypeError, ValueError):
             return default
 
-    def _wait_random_ms(self, page, min_key, max_key, default_min, default_max):
+    def _wait_random_ms(self, page, min_key, max_key, default_min, default_max, should_stop=None):
         min_ms = max(0, self._config_int(min_key, default_min))
         max_ms = max(min_ms, self._config_int(max_key, default_max))
         delay_ms = min_ms if min_ms == max_ms else random.randint(min_ms, max_ms)
-        if delay_ms:
-            page.wait_for_timeout(delay_ms)
-        return delay_ms
+        remaining_ms = delay_ms
+        while remaining_ms > 0:
+            if self._is_stop_requested(should_stop):
+                return False
+            step_ms = min(100, remaining_ms)
+            page.wait_for_timeout(step_ms)
+            remaining_ms -= step_ms
+        return not self._is_stop_requested(should_stop)
 
     def _find_comment_submit_button(self, page):
         shadow_button = self._find_bili_shadow_comment_submit_button(page)
@@ -607,32 +695,43 @@ class BiliOperator:
                 pass
             return None
 
-    def _fill_comment_input(self, page, locator, comment_text):
+    def _fill_comment_input(self, page, locator, comment_text, should_stop=None):
+        if self._is_stop_requested(should_stop):
+            return False
         if self._config_enabled("human_like_submit"):
-            self._fill_comment_input_human_like(page, locator, comment_text)
-            return
+            return self._fill_comment_input_human_like(page, locator, comment_text, should_stop=should_stop)
         try:
             locator.fill(comment_text, timeout=3000)
-            return
+            return not self._is_stop_requested(should_stop)
         except (AttributeError, PlaywrightError):
             pass
         locator.click(timeout=3000)
+        if self._is_stop_requested(should_stop):
+            return False
         page.keyboard.press("Control+A")
+        if self._is_stop_requested(should_stop):
+            return False
         page.keyboard.insert_text(comment_text)
+        return not self._is_stop_requested(should_stop)
 
-    def _fill_comment_input_human_like(self, page, locator, comment_text):
+    def _fill_comment_input_human_like(self, page, locator, comment_text, should_stop=None):
         locator.click(timeout=3000)
         page.keyboard.press("Control+A")
         for index, character in enumerate(comment_text):
+            if self._is_stop_requested(should_stop):
+                return False
             page.keyboard.insert_text(character)
             if index < len(comment_text) - 1:
-                self._wait_random_ms(
+                if not self._wait_random_ms(
                     page,
                     "human_type_min_delay_ms",
                     "human_type_max_delay_ms",
                     DEFAULT_HUMAN_TYPE_MIN_DELAY_MS,
                     DEFAULT_HUMAN_TYPE_MAX_DELAY_MS,
-                )
+                    should_stop=should_stop,
+                ):
+                    return False
+        return not self._is_stop_requested(should_stop)
 
     def _wait_for_publish_result(
         self,
@@ -642,6 +741,7 @@ class BiliOperator:
         before_count,
         auto_submitted=False,
         before_comment_id="",
+        should_stop=None,
     ):
         timeout_seconds = int(self.comment_config.get("manual_submit_timeout_seconds") or 300)
         interval_seconds = int(self.comment_config.get("check_submit_interval_seconds") or 3)
@@ -653,6 +753,8 @@ class BiliOperator:
         input_cleared_at = None
 
         while time.monotonic() < deadline:
+            if self._is_stop_requested(should_stop):
+                return self._stopped_result()
             blocking_status = self._detect_blocking_status(page)
             if blocking_status and blocking_status.status in [STATUS_LOGIN_REQUIRED, STATUS_VERIFY, STATUS_COMMENT_CLOSED]:
                 return blocking_status

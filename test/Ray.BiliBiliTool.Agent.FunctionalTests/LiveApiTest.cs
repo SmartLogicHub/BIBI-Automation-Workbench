@@ -9,6 +9,7 @@ using Ray.BiliBiliTool.Agent.BiliBiliAgent.Dtos.Live;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Interfaces;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Services;
 using Ray.BiliBiliTool.Console;
+using Ray.BiliBiliTool.Agent.FunctionalTests;
 using Ray.BiliBiliTool.Infrastructure;
 using Ray.BiliBiliTool.Infrastructure.Cookie;
 using Xunit;
@@ -22,7 +23,7 @@ namespace BiliAgentTest
             Program.CreateHost(new[] { "--ENVIRONMENT=Development" }); //Ä¬ÈÏPrd»·¾³£¬ÕâÀïÖ¸¶¨ÎªDevºó£¬¿ÉÒÔ¶ÁÈ¡µ½ÓÃ»§»úÃÜÅäÖÃ
         }
 
-        [Fact]
+        [LiveBilibiliFact]
         [Obsolete]
         public void GetExchangeSilverStatus_Normal_Success()
         {
@@ -45,7 +46,7 @@ namespace BiliAgentTest
             }
         }
 
-        [Fact]
+        [LiveBilibiliFact]
         public void Silver2Coin_Normal_Success()
         {
             using var scope = Global.ServiceProviderRoot.CreateScope();
@@ -68,7 +69,7 @@ namespace BiliAgentTest
             }
         }
 
-        [Fact]
+        [LiveBilibiliFact]
         public void GetLiveWalletStatus_Normal_Success()
         {
             using var scope = Global.ServiceProviderRoot.CreateScope();
@@ -88,7 +89,7 @@ namespace BiliAgentTest
             }
         }
 
-        [Fact]
+        [LiveBilibiliFact]
         public void GetMedalWall_Normal_Success()
         {
             using var scope = Global.ServiceProviderRoot.CreateScope();
@@ -109,7 +110,7 @@ namespace BiliAgentTest
             Assert.True(md.Medal_info.Medal_id > 0);
         }
 
-        [Fact]
+        [LiveBilibiliFact]
         public void WearMedalWall_Normal_Success()
         {
             using var scope = Global.ServiceProviderRoot.CreateScope();
@@ -127,7 +128,7 @@ namespace BiliAgentTest
             re.Code.Should().BeOneOf(0, 1500005);
         }
 
-        [Fact]
+        [LiveBilibiliFact]
         public async Task GetSpaceInfo_Normal_Success()
         {
             using var scope = Global.ServiceProviderRoot.CreateScope();
@@ -153,7 +154,7 @@ namespace BiliAgentTest
             Assert.False(String.IsNullOrEmpty(re.Data.Live_room.Title));
         }
 
-        [Fact]
+        [LiveBilibiliFact]
         public void SendLiveDanmuku_Normal_Success()
         {
             using var scope = Global.ServiceProviderRoot.CreateScope();

@@ -27,7 +27,7 @@ namespace LogTest
             _toUser = Global.ConfigurationRoot["Serilog:WriteTo:11:Args:toUser"];
         }
 
-        [Fact]
+        [ExternalWebhookFact]
         public async Task Test()
         {
             var client = new WorkWeiXinAppApiClient(_corpId, _agentId, _secret, _toUser);

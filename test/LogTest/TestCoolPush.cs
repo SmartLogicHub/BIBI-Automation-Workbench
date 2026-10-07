@@ -22,7 +22,7 @@ namespace LogTest
             _key = Global.ConfigurationRoot["Serilog:WriteTo:7:Args:sKey"];
         }
 
-        [Fact]
+        [ExternalWebhookFact]
         public async Task Test2()
         {
             if (string.IsNullOrEmpty(_key))

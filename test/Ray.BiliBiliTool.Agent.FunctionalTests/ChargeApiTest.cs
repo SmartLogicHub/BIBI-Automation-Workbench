@@ -28,7 +28,7 @@ public class ChargeApiTest
 
     #region ChargeV2Async
 
-    [Fact]
+    [LiveBilibiliFact]
     public async void ChargeV2Async_SendRequest_NotEnough()
     {
         // Arrange

@@ -10,6 +10,8 @@ public class ContentAutomationStrategy
 
     public IReadOnlyList<string> Keywords { get; set; } = [];
 
+    public IReadOnlyList<string> ExcludeKeywords { get; set; } = [];
+
     public IReadOnlyList<string> AccountIds { get; set; } = [];
 
     public string Rules { get; set; } = "";

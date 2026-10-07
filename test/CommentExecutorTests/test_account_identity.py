@@ -186,6 +186,77 @@ class AccountIdentityTests(unittest.TestCase):
             self.assertEqual(video["status"], "pending")
             self.assertEqual(video["last_error"], "登录已失效")
 
+    def test_verification_publish_result_pauses_only_that_account_and_keeps_its_session(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            store = AppStore(root / "app.db")
+            store.initialize()
+            account = store.create_account({"name": "待验证账号"}, base_dir=root)
+            session = "DedeUserID=3002; SESSDATA=session; bili_jct=csrf"
+            store.update_account(account["id"], {
+                "uid": "3002",
+                "cookie": session,
+                "loginStatus": "ok",
+            })
+            library = store.save_comment_library("验证词库", ["请完成验证后再试"])
+            store.import_videos(["BV1xx411c7mD"], source="manual", dry_run=False)
+            item = store.build_comment_plan(max_count=1, library_id=library["id"])["items"][0]
+
+            store.record_publish_result(item, server.STATUS_VERIFY, "检测到安全验证")
+
+            updated = store.get_account(account["id"])
+            ledger = store.list_ledger(limit=1)[0]
+            video = store.list_videos(limit=1)[0]
+            self.assertEqual(updated["login_status"], "verify_required")
+            self.assertEqual(updated["cookie"], session)
+            self.assertEqual(ledger["status"], server.STATUS_VERIFY)
+            self.assertEqual(video["status"], "pending")
+
+    def test_verification_detection_records_a_recovery_action_and_target_url(self):
+        class Page:
+            url = "https://www.bilibili.com/video/BV1xx411c7mD"
+
+        operator = bili_operator.BiliOperator()
+        operator._safe_body_text = lambda _page: bili_operator.VERIFY_KEYWORDS[0]
+
+        result = operator._detect_blocking_status(Page())
+
+        self.assertEqual(result.status, server.STATUS_VERIFY)
+        self.assertEqual(result.verification_method, "manual_security_check")
+        self.assertIn("安全验证", result.proof_text)
+        self.assertEqual(result.comment_url, Page.url)
+
+    def test_verification_detection_handles_visible_captcha_without_page_text(self):
+        class MissingLocator:
+            count = 0
+            first = None
+
+            def is_visible(self, timeout=0):
+                return False
+
+        class VisibleLocator:
+            count = 1
+
+            def __init__(self):
+                self.first = self
+
+            def is_visible(self, timeout=0):
+                return True
+
+        class Page:
+            url = "https://www.bilibili.com/video/BV1xx411c7mD"
+
+            def locator(self, selector):
+                return VisibleLocator() if "captcha" in selector else MissingLocator()
+
+        operator = bili_operator.BiliOperator()
+        operator._safe_body_text = lambda _page: ""
+
+        result = operator._detect_blocking_status(Page())
+
+        self.assertEqual(result.status, server.STATUS_VERIFY)
+        self.assertEqual(result.verification_method, "manual_security_check")
+
     def test_browser_search_tries_all_available_accounts_until_one_succeeds(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -304,6 +375,77 @@ class AccountIdentityTests(unittest.TestCase):
                 server.STATUS_LOGIN_REQUIRED,
                 server.STATUS_SUCCESS,
             ])
+
+    def test_comment_workflow_does_not_record_or_submit_after_stop_is_requested(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            store = AppStore(root / "app.db")
+            store.initialize()
+            account = store.create_account({"name": "stopped-account"}, base_dir=root)
+            store.update_account(account["id"], {
+                "uid": "6001",
+                "cookie": "DedeUserID=6001; SESSDATA=session; bili_jct=csrf",
+                "loginStatus": "ok",
+            })
+            library = store.save_comment_library("stop-library", ["do not send"])
+            store.import_videos(["BV1xx411c7mD"], source="manual", dry_run=False)
+
+            class JobState:
+                stop_requested = False
+
+            job_state = JobState()
+
+            class TestJobs:
+                def get(self, _job_id):
+                    return job_state
+
+                def update(self, *_args, **_kwargs):
+                    return None
+
+            class StopAwareOperator:
+                def __init__(self, *_args, **_kwargs):
+                    pass
+
+                def publish_comment(self, _account, *_args, should_stop=None, **_kwargs):
+                    assert should_stop is not None
+                    job_state.stop_requested = True
+                    assert should_stop()
+                    return OperatorResult("stopped", "stop requested before submit")
+
+            previous_store = server.APP_STORE
+            previous_jobs = server.JOBS
+            server.APP_STORE = store
+            server.JOBS = TestJobs()
+            try:
+                with (
+                    patch.object(server, "BiliOperator", StopAwareOperator),
+                    patch.object(
+                        server,
+                        "load_app_config",
+                        return_value={
+                            "browser": {},
+                            "comment": {},
+                            "scheduler": {
+                                "account_interval_min_seconds": 0,
+                                "account_interval_max_seconds": 0,
+                                "same_account_cooldown_min_seconds": 0,
+                                "same_account_cooldown_max_seconds": 0,
+                            },
+                        },
+                    ),
+                ):
+                    result = server.action_run_comment_workflow(
+                        type("Job", (), {"id": "stop-before-submit"})(),
+                        {"dryRun": False, "maxCount": 1, "libraryId": library["id"]},
+                    )
+            finally:
+                server.APP_STORE = previous_store
+                server.JOBS = previous_jobs
+
+            self.assertEqual(result["success"], 0)
+            self.assertEqual(result["failed"], 0)
+            self.assertEqual(result["items"][0]["status"], "stopped")
+            self.assertEqual(store.list_ledger(), [])
 
     def test_integrated_workflow_imports_all_manual_videos_before_discovery(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

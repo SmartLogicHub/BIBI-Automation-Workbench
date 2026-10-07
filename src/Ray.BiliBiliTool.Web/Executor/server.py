@@ -24,6 +24,7 @@ from bili_operator import (
     STATUS_LOGIN_REQUIRED,
     STATUS_SUBMITTED_UNVERIFIED,
     STATUS_SUCCESS,
+    STATUS_STOPPED,
     STATUS_VERIFY,
     VERIFY_KEYWORDS,
     BiliOperator,
@@ -1513,6 +1514,35 @@ def _payload_keywords(payload):
     return normalize_keywords(payload.get("keywords") or [], limit=KEYWORD_NORMALIZE_LIMIT)
 
 
+def _payload_exclude_keywords(payload):
+    value = payload.get("excludeKeywords") or payload.get("exclude_keywords") or []
+    return normalize_keywords(value, limit=KEYWORD_NORMALIZE_LIMIT)
+
+
+def filter_candidates_by_exclude_keywords(candidates, exclude_keywords):
+    normalized = [
+        keyword.casefold()
+        for keyword in normalize_keywords(exclude_keywords, limit=KEYWORD_NORMALIZE_LIMIT)
+    ]
+    if not normalized:
+        return list(candidates or []), 0
+
+    kept = []
+    excluded_count = 0
+    for item in candidates or []:
+        candidate = item if isinstance(item, dict) else {}
+        fields = [
+            str(candidate.get("title") or "").casefold(),
+            str(candidate.get("description") or "").casefold(),
+            str(candidate.get("author") or "").casefold(),
+        ]
+        if any(keyword in field for keyword in normalized for field in fields):
+            excluded_count += 1
+            continue
+        kept.append(item)
+    return kept, excluded_count
+
+
 def _discovery_queue_target(payload):
     try:
         return max(1, min(DISCOVERY_MAX_QUEUE_TARGET, int((payload or {}).get("limit") or DISCOVERY_DEFAULT_QUEUE_TARGET)))
@@ -1757,6 +1787,7 @@ def discover_videos_for_payload(payload, dry_run):
     if not keywords:
         raise JobError("请至少提供一个搜索关键词", category="api_error", suggestion="填写 keywords 后重试")
 
+    exclude_keywords = _payload_exclude_keywords(payload)
     queue_target = _discovery_queue_target(payload)
     pending_before = int(get_store().summary().get("queue_pending") or 0)
     needed = max(0, queue_target - pending_before)
@@ -1768,6 +1799,7 @@ def discover_videos_for_payload(payload, dry_run):
         "searchedPages": 0,
         "freshCandidates": 0,
         "duplicateCandidates": 0,
+        "excludedCandidates": 0,
         "aiSelected": 0,
         "fallbackSelected": 0,
         "inserted": 0,
@@ -1853,6 +1885,14 @@ def discover_videos_for_payload(payload, dry_run):
                 _discovery_job_update(job_id, f"{keyword} 第 {page} 页：分页结果重复，已标记耗尽", progress=28)
                 continue
             keyword_state[keyword]["last_signature"] = signature
+
+            page_items, excluded_count = filter_candidates_by_exclude_keywords(
+                page_items,
+                exclude_keywords,
+            )
+            stats["excludedCandidates"] += excluded_count
+            if not page_items:
+                continue
 
             fresh, duplicate_count = _split_fresh_candidates(page_items, existing | seen_this_run)
             for item in fresh:
@@ -2413,6 +2453,7 @@ def action_run_comment_workflow(job, payload):
                 account,
                 item["url"],
                 template_text,
+                should_stop=lambda: _job_stop_requested(job.id),
             )
         except Exception as error:
             error_message = f"评论页面执行异常：{error}"
@@ -2421,6 +2462,10 @@ def action_run_comment_workflow(job, payload):
             results.append({**item, "status": "retryable_error", "error_reason": error_message})
             get_jobs().update(job.id, message=error_message, event_type="warning")
             continue
+        if result.status == STATUS_STOPPED:
+            results.append({**item, "status": STATUS_STOPPED, "error_reason": result.error_reason})
+            get_jobs().update(job.id, message="正在停止，当前评论未提交", event_type="progress")
+            break
         if result.status == STATUS_SUCCESS:
             success += 1
             submitted_to_platform = True
@@ -2448,12 +2493,18 @@ def action_run_comment_workflow(job, payload):
             )
         else:
             failed += 1
-            get_store().record_publish_result(item, result.status, result.error_reason)
-            results.append({**item, "status": result.status, "error_reason": result.error_reason})
+            get_store().record_publish_result(
+                item,
+                result.status,
+                result.error_reason,
+                evidence=result.evidence(),
+            )
+            results.append({**item, "status": result.status, "error_reason": result.error_reason, **result.evidence()})
             if result.status in {STATUS_LOGIN_REQUIRED, STATUS_VERIFY}:
+                manual_action = "重新登录" if result.status == STATUS_LOGIN_REQUIRED else "完成安全验证"
                 get_jobs().update(
                     job.id,
-                    message=f"账号 {item['account_name']} 需要重新登录或完成验证，已继续处理其他账号",
+                    message=f"账号 {item['account_name']} 需要{manual_action}，已暂停该账号并继续处理其他账号",
                     event_type="warning",
                 )
                 continue

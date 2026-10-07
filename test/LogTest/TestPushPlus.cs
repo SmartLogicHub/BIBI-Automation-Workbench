@@ -26,7 +26,7 @@ namespace LogTest
             _webhook = Global.ConfigurationRoot["Serilog:WriteTo:9:Args:webhook"];
         }
 
-        [Fact]
+        [ExternalWebhookFact]
         public async Task Test2()
         {
             var client = new PushPlusApiClient(_token, channel: _channel, webhook: _webhook);

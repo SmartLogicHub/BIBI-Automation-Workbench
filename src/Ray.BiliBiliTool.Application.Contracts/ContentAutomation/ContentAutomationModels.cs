@@ -272,6 +272,8 @@ public class ContentAutomationWorkflowRequest
 
     public IReadOnlyList<string> Keywords { get; set; } = [];
 
+    public IReadOnlyList<string> ExcludeKeywords { get; set; } = [];
+
     public string CommentMode { get; set; } = "template";
 
     public string Year { get; set; } = "2026";
@@ -310,6 +312,8 @@ public class ContentAutomationSearchRequest
     public bool DryRun { get; set; } = true;
 
     public IReadOnlyList<string> Keywords { get; set; } = [];
+
+    public IReadOnlyList<string> ExcludeKeywords { get; set; } = [];
 
     public string Year { get; set; } = "2026";
 

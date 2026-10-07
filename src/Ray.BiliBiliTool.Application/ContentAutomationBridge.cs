@@ -748,6 +748,7 @@ public class ContentAutomationBridge : IContentAutomationBridge
         {
             ["dryRun"] = request.DryRun,
             ["keywords"] = keywords,
+            ["excludeKeywords"] = NormalizeList(request.ExcludeKeywords),
             ["year"] = NormalizeYear(request.Year),
             ["limit"] = request.Limit,
             ["rules"] = request.Rules?.Trim() ?? "",
@@ -782,6 +783,7 @@ public class ContentAutomationBridge : IContentAutomationBridge
         {
             ["dryRun"] = request.DryRun,
             ["keywords"] = keywords,
+            ["excludeKeywords"] = NormalizeList(request.ExcludeKeywords),
             ["commentMode"] = commentMode,
             ["year"] = NormalizeYear(request.Year),
             ["limit"] = request.Limit,

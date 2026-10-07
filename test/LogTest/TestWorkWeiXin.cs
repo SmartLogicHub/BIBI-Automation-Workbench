@@ -22,7 +22,7 @@ namespace LogTest
             _key = Global.ConfigurationRoot["Serilog:WriteTo:4:Args:webHookUrl"];
         }
 
-        [Fact]
+        [ExternalWebhookFact]
         public async Task Test2()
         {
             var client = new WorkWeiXinApiClient(_key, WorkWeiXinMsgType.text);

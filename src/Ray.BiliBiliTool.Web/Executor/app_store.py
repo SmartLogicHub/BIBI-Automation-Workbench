@@ -1019,13 +1019,18 @@ class AppStore:
                 "verify",
                 "captcha_or_verify",
             }:
+                account_login_status = (
+                    "verify_required"
+                    if status in {"verify_required", "verify", "captcha_or_verify"}
+                    else "login_required"
+                )
                 db.execute(
                     """
                     UPDATE accounts
                     SET login_status=?, login_note=?, last_login_checked_at=?, updated_at=?
                     WHERE id=?
                     """,
-                    (status, error_reason or "", timestamp, timestamp, plan_item.get("account_id")),
+                    (account_login_status, error_reason or "", timestamp, timestamp, plan_item.get("account_id")),
                 )
 
     def mark_account_cooldown(self, account_id, min_seconds=1200, max_seconds=2400):

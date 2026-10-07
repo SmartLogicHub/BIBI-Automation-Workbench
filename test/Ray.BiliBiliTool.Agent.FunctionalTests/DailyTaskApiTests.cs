@@ -26,7 +26,7 @@ public class DailyTaskApiTests
         _api = host.Services.GetRequiredService<IDailyTaskApi>();
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task GetDailyTaskRewardInfo_Normal_Success()
     {
         // Act
@@ -39,7 +39,7 @@ public class DailyTaskApiTests
         re.Data.Should().NotBeNull();
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task GetDonateCoinExp_Normal_Success()
     {
         // Act
@@ -52,7 +52,7 @@ public class DailyTaskApiTests
         re.Data.Should().BeGreaterThanOrEqualTo(0);
     }
 
-    [Fact]
+    [LiveBilibiliFact]
     public async Task ReceiveVipPrivilege_Normal_Success()
     {
         // Act

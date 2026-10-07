@@ -113,10 +113,10 @@ class JobManager:
                 return None
             job.stop_requested = True
             if job.status in {"started", "running"}:
-                job.status = "stopped"
-                job.message = "任务已停止"
+                job.status = "stopping"
+                job.message = "正在停止，等待当前浏览器操作退出"
                 job.updated_at = time.time()
-                job.events.append({"event": "stopped", "data": self.serialize(job)})
+                job.events.append({"event": "stopping", "data": self.serialize(job)})
             return job
 
     def request_stop_all(self):
@@ -126,10 +126,10 @@ class JobManager:
                 if job.status in FINAL_STATUSES or job.stop_requested:
                     continue
                 job.stop_requested = True
-                job.status = "stopped"
-                job.message = "任务已停止"
+                job.status = "stopping"
+                job.message = "正在停止，等待当前浏览器操作退出"
                 job.updated_at = time.time()
-                job.events.append({"event": "stopped", "data": self.serialize(job)})
+                job.events.append({"event": "stopping", "data": self.serialize(job)})
                 stopped_count += 1
         return stopped_count
 

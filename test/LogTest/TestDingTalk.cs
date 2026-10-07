@@ -28,7 +28,7 @@ namespace LogTest
             }
         }
 
-        [Fact]
+        [ExternalWebhookFact]
         public async Task Test2()
         {
             var client = new DingTalkApiClient(_key);
